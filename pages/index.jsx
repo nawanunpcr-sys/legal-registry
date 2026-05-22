@@ -141,10 +141,10 @@ export default function Dashboard() {
       <div className="mb-8 rounded-[32px] border border-slate-200/70 bg-white/90 p-8 shadow-xl">
         <div className="flex flex-col lg:flex-row gap-6 lg:items-center lg:justify-between">
           <div>
-            <div className="hero-pill mb-4">สรุปภาพรวมองค์กร</div>
-            <h1 className="page-title">🏢 Dashboard ภาพรวมองค์กร</h1>
+            <div className="hero-pill mb-4">ภาพรวมระบบ</div>
+            <h1 className="page-title">Legal Management System</h1>
             <p className="section-subtitle max-w-2xl">
-              ระบบทะเบียนกฎหมายและการประเมินความสอดคล้องที่ช่วยวิเคราะห์ภาพรวมและติดตามงานเชิงลึก
+              แพลตฟอร์มบริหารจัดการกฎหมายและความสอดคล้องเชิงองค์กร
             </p>
           </div>
           <div className="flex flex-wrap gap-3">

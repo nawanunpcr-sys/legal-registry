@@ -16,10 +16,10 @@ const menu = [
     ]
   },
   {
-    group: 'ทะเบียนกฎหมาย',
+    group: 'กฎหมาย',
     items: [
       { href: '/legal', label: 'รายการกฎหมาย', icon: BookOpen },
-      { href: '/legal/add', label: 'เพิ่มกฎหมายใหม่', icon: BookOpen },
+      { href: '/legal/add', label: 'เพิ่มกฎหมาย', icon: BookOpen },
     ]
   },
   {
@@ -73,18 +73,16 @@ export default function Sidebar() {
   const router = useRouter()
 
   return (
-    <div className="w-64 bg-gradient-to-b from-slate-900 via-blue-950 to-slate-900 
-                    text-white flex flex-col h-screen shadow-2xl fixed left-0 top-0 z-50">
+    <div className="w-64 bg-slate-950 text-white flex flex-col h-screen shadow-2xl fixed left-0 top-0 z-50">
       {/* Logo */}
       <div className="p-5 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 bg-gradient-to-br from-blue-400 to-blue-600 
-                          rounded-xl flex items-center justify-center shadow-lg">
+          <div className="w-11 h-11 bg-slate-700 rounded-xl flex items-center justify-center">
             <Shield className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="font-bold text-sm leading-tight">ทะเบียนกฎหมาย</h1>
-            <p className="text-blue-300 text-xs">Legal Registry + AI</p>
+            <h1 className="font-bold text-sm leading-tight">Legal Management System</h1>
+            <p className="text-slate-400 text-xs">Legal Management System</p>
           </div>
         </div>
       </div>
@@ -92,13 +90,12 @@ export default function Sidebar() {
       {/* User */}
       <div className="px-4 py-3 border-b border-white/10 bg-white/5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 
-                          to-blue-600 flex items-center justify-center text-xs font-bold">
+          <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-xs font-bold text-white">
             จป
           </div>
           <div>
             <p className="text-sm font-semibold">จป.วิชาชีพ</p>
-            <p className="text-blue-300 text-xs">ฝ่าย EHS • Admin</p>
+            <p className="text-slate-400 text-xs">ฝ่าย EHS • Admin</p>
           </div>
         </div>
       </div>
@@ -116,12 +113,10 @@ export default function Sidebar() {
               target="_blank"
               rel="noopener noreferrer"
               title={ai.label}
-              className={`flex-1 bg-gradient-to-br ${ai.color} rounded-lg p-2 
-                         text-center text-sm hover:opacity-90 transition-opacity 
-                         flex flex-col items-center gap-0.5 cursor-pointer`}
+              className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-center text-sm text-slate-100 hover:bg-slate-800 transition-colors flex flex-col items-center gap-0.5"
             >
               <span className="text-base">{ai.icon}</span>
-              <span className="text-white text-[9px] font-medium leading-tight">
+              <span className="font-medium leading-tight">
                 {ai.label.split(' ')[0]}
               </span>
             </a>
@@ -162,7 +157,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-white/10 text-center">
-        <p className="text-blue-400/60 text-xs">v1.0 © 2567 Legal Registry</p>
+        <p className="text-blue-400/60 text-xs">v1.0 © 2567 Legal Management System</p>
       </div>
     </div>
   )

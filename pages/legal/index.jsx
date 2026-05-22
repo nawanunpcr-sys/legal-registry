@@ -76,8 +76,8 @@ export default function LegalList() {
       <div className="mb-8 rounded-[32px] border border-slate-200/70 bg-white/95 p-8 shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="hero-pill mb-3">ทะเบียนกฎหมาย</div>
-            <h1 className="page-title">จัดการรายการกฎหมาย</h1>
+            <div className="hero-pill mb-3">กฎหมาย</div>
+            <h1 className="page-title">จัดการกฎหมาย</h1>
             <p className="section-subtitle max-w-2xl">
               ดูรายการกฎหมายทั้งหมด ค้นหา และจัดการข้อมูลได้อย่างชัดเจน
             </p>

@@ -20,15 +20,15 @@ export default function AddLawPage() {
       <div className="card">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div>
-            <div className="hero-pill mb-3">เพิ่มกฎหมายใหม่</div>
-            <h1 className="page-title">สร้างรายการกฎหมาย</h1>
+            <div className="hero-pill mb-3">กฎหมาย</div>
+            <h1 className="page-title">เพิ่มกฎหมายใหม่</h1>
             <p className="section-subtitle max-w-2xl">
-              กรอกข้อมูลกฎหมายเพื่อเพิ่มเข้าในระบบทะเบียน และจัดการการแสดงผลต่อไป.
+              กรอกข้อมูลกฎหมายเพื่อเพิ่มเข้าในระบบและจัดการการแสดงผลต่อไป.
             </p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-3xl bg-blue-50 px-4 py-3 text-blue-700">
+          <div className="inline-flex items-center gap-2 rounded-3xl bg-slate-100 px-4 py-3 text-slate-800">
             <PlusCircle className="w-4 h-4" />
-            แบบฟอร์มช่วยให้จัดการได้ง่าย
+            แบบฟอร์มจัดการง่าย
           </div>
         </div>
 

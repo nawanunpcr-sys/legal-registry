@@ -1,6 +1,6 @@
 # legal-registry
 
-This is a Next.js project for Legal Registry + AI, bootstrapped with Create Next App.
+This is a Next.js project for Legal Management System, bootstrapped with Create Next App.
 
 ## Getting Started
 

@@ -4,12 +4,12 @@ import { getDashboardData } from '../lib/supabase'
 import {
   BookOpen, CheckCircle2, Clock, AlertTriangle,
   TrendingUp, Users, FileCheck, Activity,
-  ArrowUp, Building2, Shield, Target
+  ArrowUp, Building2, Shield, Target, ClipboardList
 } from 'lucide-react'
 import {
   PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend
+  ResponsiveContainer
 } from 'recharts'
 import Link from 'next/link'
 
@@ -138,41 +138,41 @@ export default function Dashboard() {
   return (
     <Layout>
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800">
-            🏢 Dashboard ภาพรวมองค์กร
-          </h1>
-          <p className="text-slate-500 mt-1">
-            ระบบทะเบียนกฎหมายและการประเมินความสอดคล้อง
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Link href="/legal/add" className="btn-primary">
-            <BookOpen className="w-4 h-4" />
-            เพิ่มกฎหมาย
-          </Link>
-          <Link href="/ai-analysis" className="btn-success">
-            <Activity className="w-4 h-4" />
-            วิเคราะห์ด้วย AI
-          </Link>
+      <div className="mb-8 rounded-[32px] border border-slate-200/70 bg-white/90 p-8 shadow-xl">
+        <div className="flex flex-col lg:flex-row gap-6 lg:items-center lg:justify-between">
+          <div>
+            <div className="hero-pill mb-4">สรุปภาพรวมองค์กร</div>
+            <h1 className="page-title">🏢 Dashboard ภาพรวมองค์กร</h1>
+            <p className="section-subtitle max-w-2xl">
+              ระบบทะเบียนกฎหมายและการประเมินความสอดคล้องที่ช่วยวิเคราะห์ภาพรวมและติดตามงานเชิงลึก
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/legal/add" className="btn-primary">
+              <BookOpen className="w-4 h-4" />
+              เพิ่มกฎหมาย
+            </Link>
+            <Link href="/ai-analysis" className="btn-success">
+              <Activity className="w-4 h-4" />
+              วิเคราะห์ด้วย AI
+            </Link>
+          </div>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
         {statsCards.map((card) => {
           const Icon = card.icon
           return (
-            <div key={card.label} className="card hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between">
+            <div key={card.label} className="card hover:-translate-y-1 hover:shadow-2xl transition-transform duration-300">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm text-slate-500 mb-1">{card.label}</p>
-                  <p className="text-3xl font-bold text-slate-800">{card.value}</p>
-                  <p className={`text-xs mt-1 ${card.text}`}>{card.sub}</p>
+                  <p className="text-sm text-slate-500 mb-2">{card.label}</p>
+                  <p className="text-3xl font-bold text-slate-900">{card.value}</p>
+                  <p className={`text-sm mt-2 ${card.text}`}>{card.sub}</p>
                 </div>
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${card.color} 
-                                flex items-center justify-center shadow-sm`}>
+                <div className={`w-14 h-14 rounded-3xl bg-gradient-to-br ${card.color} flex items-center justify-center shadow-lg`}>
                   <Icon className="w-6 h-6 text-white" />
                 </div>
               </div>
@@ -183,17 +183,21 @@ export default function Dashboard() {
 
       {/* Progress Bar ภาพรวม */}
       <div className="card mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Target className="w-5 h-5 text-blue-600" />
-            ความคืบหน้าการประเมินความสอดคล้อง
-          </h2>
-          <span className="text-2xl font-bold text-blue-600">{complianceRate}%</span>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-blue-500/10 p-3 text-blue-600">
+              <Target className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="section-title">ความคืบหน้าการประเมินความสอดคล้อง</h2>
+              <p className="text-sm text-slate-500">ติดตามระดับความสอดคล้องในภาพรวมขององค์กร</p>
+            </div>
+          </div>
+          <span className="text-3xl font-bold text-slate-900">{complianceRate}%</span>
         </div>
-        <div className="w-full bg-gray-100 rounded-full h-6 overflow-hidden">
+        <div className="w-full bg-slate-100 rounded-full h-6 overflow-hidden">
           <div
-            className="h-6 rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 
-                       transition-all duration-1000 flex items-center justify-end pr-3"
+            className="h-6 rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-1000 flex items-center justify-end pr-3"
             style={{ width: `${complianceRate}%` }}
           >
             <span className="text-white text-xs font-bold">{complianceRate}%</span>
@@ -206,20 +210,18 @@ export default function Dashboard() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
         {/* Pie - Task Status */}
         <div className="card">
-          <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-            <ClipboardList className="w-4 h-4 text-blue-500" />
-            สถานะงานทั้งหมด
-          </h3>
+          <div className="mb-4 flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-blue-500" />
+            <h3 className="section-title">สถานะงานทั้งหมด</h3>
+          </div>
           {taskStatusData.length > 0 ? (
             <>
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
-                  <Pie data={taskStatusData} cx="50%" cy="50%"
-                    innerRadius={50} outerRadius={80}
-                    dataKey="value" paddingAngle={3}>
+                  <Pie data={taskStatusData} cx="50%" cy="50%" innerRadius={60} outerRadius={88} dataKey="value" paddingAngle={4}>
                     {taskStatusData.map((entry, i) => (
                       <Cell key={i} fill={entry.color} />
                     ))}
@@ -227,14 +229,14 @@ export default function Dashboard() {
                   <Tooltip formatter={(v, n) => [`${v} รายการ`, n]} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="space-y-1.5 mt-2">
+              <div className="space-y-3 mt-4">
                 {taskStatusData.map((d, i) => (
-                  <div key={i} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }} />
-                      <span className="text-slate-600">{d.name}</span>
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: d.color }} />
+                      <span className="text-slate-700">{d.name}</span>
                     </div>
-                    <span className="font-semibold text-slate-700">{d.value}</span>
+                    <span className="font-semibold text-slate-900">{d.value}</span>
                   </div>
                 ))}
               </div>
@@ -246,17 +248,15 @@ export default function Dashboard() {
 
         {/* Pie - Compliance */}
         <div className="card">
-          <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-            <Shield className="w-4 h-4 text-emerald-500" />
-            ผลการประเมินสอดคล้อง
-          </h3>
+          <div className="mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-emerald-500" />
+            <h3 className="section-title">ผลการประเมินสอดคล้อง</h3>
+          </div>
           {complianceData.length > 0 ? (
             <>
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
-                  <Pie data={complianceData} cx="50%" cy="50%"
-                    innerRadius={50} outerRadius={80}
-                    dataKey="value" paddingAngle={3}>
+                  <Pie data={complianceData} cx="50%" cy="50%" innerRadius={60} outerRadius={88} dataKey="value" paddingAngle={4}>
                     {complianceData.map((entry, i) => (
                       <Cell key={i} fill={entry.color} />
                     ))}
@@ -264,14 +264,14 @@ export default function Dashboard() {
                   <Tooltip formatter={(v, n) => [`${v} รายการ`, n]} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="space-y-1.5 mt-2">
+              <div className="space-y-3 mt-4">
                 {complianceData.map((d, i) => (
-                  <div key={i} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }} />
-                      <span className="text-slate-600">{d.name}</span>
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: d.color }} />
+                      <span className="text-slate-700">{d.name}</span>
                     </div>
-                    <span className="font-semibold text-slate-700">{d.value}</span>
+                    <span className="font-semibold text-slate-900">{d.value}</span>
                   </div>
                 ))}
               </div>
@@ -283,11 +283,11 @@ export default function Dashboard() {
 
         {/* Quick Actions */}
         <div className="card">
-          <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-purple-500" />
-            การดำเนินการด่วน
-          </h3>
-          <div className="space-y-3">
+          <div className="mb-4 flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-purple-500" />
+            <h3 className="section-title">การดำเนินการด่วน</h3>
+          </div>
+          <div className="grid gap-3">
             {[
               { label: 'เพิ่มกฎหมายใหม่', href: '/legal/add', color: 'bg-blue-50 hover:bg-blue-100 text-blue-700', icon: '📚' },
               { label: 'วิเคราะห์ด้วย AI', href: '/ai-analysis', color: 'bg-purple-50 hover:bg-purple-100 text-purple-700', icon: '🤖' },
@@ -296,10 +296,10 @@ export default function Dashboard() {
               { label: 'ดู Dashboard แผนก', href: '/dashboard-dept', color: 'bg-pink-50 hover:bg-pink-100 text-pink-700', icon: '🏗️' },
             ].map((action) => (
               <Link key={action.href} href={action.href}
-                className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${action.color}`}>
+                className={`flex items-center gap-3 rounded-3xl ${action.color} p-4 transition-all duration-200`}>
                 <span className="text-xl">{action.icon}</span>
                 <span className="font-medium text-sm">{action.label}</span>
-                <ArrowUp className="w-3 h-3 ml-auto rotate-45 opacity-50" />
+                <ArrowUp className="w-4 h-4 ml-auto opacity-60 rotate-45" />
               </Link>
             ))}
           </div>
@@ -309,20 +309,20 @@ export default function Dashboard() {
       {/* Bar Chart แผนก */}
       {deptBarData.length > 0 && (
         <div className="card mb-8">
-          <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2">
+          <div className="mb-6 flex items-center gap-2">
             <Users className="w-5 h-5 text-blue-500" />
-            คะแนนความสอดคล้องรายแผนก (%)
-          </h3>
-          <ResponsiveContainer width="100%" height={280}>
+            <h3 className="section-title">คะแนนความสอดคล้องรายแผนก (%)</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={320}>
             <BarChart data={deptBarData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: 'Sarabun' }} />
               <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
               <Tooltip
                 contentStyle={{ fontFamily: 'Sarabun', fontSize: 12 }}
                 formatter={(v) => [`${v}%`, 'คะแนน']}
               />
-              <Bar dataKey="คะแนน" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="คะแนน" fill="#3B82F6" radius={[16, 16, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -330,6 +330,3 @@ export default function Dashboard() {
     </Layout>
   )
 }
-
-// เพิ่ม import ที่ขาดไป
-import { ClipboardList } from 'lucide-react'

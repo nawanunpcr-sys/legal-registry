@@ -4,7 +4,7 @@ import { getDashboardData } from '../lib/supabase'
 import {
   BookOpen, CheckCircle2, Clock, AlertTriangle,
   TrendingUp, Users, FileCheck, Activity,
-  ArrowUp, Building2, Shield, Target, ClipboardList
+  ArrowUp, Building2, Shield, Target, ClipboardList, Brain
 } from 'lucide-react'
 import {
   PieChart, Pie, Cell, BarChart, Bar,
@@ -12,6 +12,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 import Link from 'next/link'
+
 
 const COLORS = ['#10B981', '#F59E0B', '#EF4444', '#6B7280', '#3B82F6']
 
@@ -289,19 +290,22 @@ export default function Dashboard() {
           </div>
           <div className="grid gap-3">
             {[
-              { label: 'เพิ่มกฎหมายใหม่', href: '/legal/add', color: 'bg-blue-50 hover:bg-blue-100 text-blue-700', icon: '📚' },
-              { label: 'วิเคราะห์ด้วย AI', href: '/ai-analysis', color: 'bg-purple-50 hover:bg-purple-100 text-purple-700', icon: '🤖' },
-              { label: 'อนุมัติและส่งงาน', href: '/tasks', color: 'bg-amber-50 hover:bg-amber-100 text-amber-700', icon: '✅' },
-              { label: 'ประเมินความสอดคล้อง', href: '/compliance', color: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700', icon: '🛡️' },
-              { label: 'ดู Dashboard แผนก', href: '/dashboard-dept', color: 'bg-pink-50 hover:bg-pink-100 text-pink-700', icon: '🏗️' },
-            ].map((action) => (
-              <Link key={action.href} href={action.href}
-                className={`flex items-center gap-3 rounded-3xl ${action.color} p-4 transition-all duration-200`}>
-                <span className="text-xl">{action.icon}</span>
-                <span className="font-medium text-sm">{action.label}</span>
-                <ArrowUp className="w-4 h-4 ml-auto opacity-60 rotate-45" />
-              </Link>
-            ))}
+              { label: 'เพิ่มกฎหมายใหม่', href: '/legal/add', color: 'bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800', icon: BookOpen },
+              { label: 'วิเคราะห์ด้วย AI', href: '/ai-analysis', color: 'bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-800', icon: Brain },
+              { label: 'อนุมัติและส่งงาน', href: '/tasks', color: 'bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-800', icon: ClipboardList },
+              { label: 'ประเมินความสอดคล้อง', href: '/compliance', color: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800', icon: Shield },
+              { label: 'ดู Dashboard แผนก', href: '/dashboard-dept', color: 'bg-pink-50 hover:bg-pink-100 text-pink-700 hover:text-pink-800', icon: Building2 },
+            ].map((action) => {
+              const Icon = action.icon
+              return (
+                <Link key={action.href} href={action.href}
+                  className={`flex items-center gap-3 rounded-3xl ${action.color} p-4 transition-all duration-200`}>
+                  <Icon className="w-5 h-5" />
+                  <span className="font-semibold text-sm">{action.label}</span>
+                  <ArrowUp className="w-4 h-4 ml-auto opacity-60 rotate-45" />
+                </Link>
+              )
+            })}
           </div>
         </div>
       </div>

@@ -3,9 +3,10 @@ import { useRouter } from 'next/router'
 import {
   LayoutDashboard, BookOpen, Brain, ClipboardList,
   CheckSquare, Shield, Settings, ChevronRight,
-  Building2, ExternalLink, Sparkles
+  Building2, ExternalLink, Sparkles, LogOut
 } from 'lucide-react'
 import clsx from 'clsx'
+import { useAuth } from '../hooks/useAuth'
 
 const menu = [
   {
@@ -13,6 +14,7 @@ const menu = [
     items: [
       { href: '/', label: 'Dashboard องค์กร', icon: LayoutDashboard },
       { href: '/dashboard-dept', label: 'Dashboard แผนก', icon: Building2 },
+      { href: '/new-laws', label: 'กฎหมายที่เพิ่งเผยแพร่', icon: Sparkles },
     ]
   },
   {
@@ -71,6 +73,7 @@ const aiLinks = [
 
 export default function Sidebar() {
   const router = useRouter()
+  const { logout } = useAuth()
 
   return (
     <div className="w-64 bg-slate-950 text-white flex flex-col h-screen shadow-2xl fixed left-0 top-0 z-50">
@@ -156,8 +159,15 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-4 border-t border-white/10 text-center">
-        <p className="text-blue-400/60 text-xs">v1.0 © 2567 Legal Management System</p>
+      <div className="p-4 border-t border-white/10 space-y-3">
+        <button
+          onClick={logout}
+          className="w-full flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/30 text-red-200 font-medium py-2 px-3 rounded-lg transition-colors text-sm"
+        >
+          <LogOut className="w-4 h-4" />
+          ออกจากระบบ
+        </button>
+        <p className="text-blue-400/60 text-xs text-center">v1.0 © 2567 Legal Management System</p>
       </div>
     </div>
   )

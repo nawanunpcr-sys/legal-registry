@@ -5,11 +5,9 @@ import Link from 'next/link'
 import { 
   Sparkles, ArrowRight, Search, Copy, CheckCircle2, AlertCircle, 
   Upload, FileText, Globe, Clipboard, Shield, Scale, Clock, Key,
-  Flame, FlaskConical, TreePine, Mountain, HardHat, Users, Cog, Eye, EyeOff,
-  Download, FileCheck
+  Flame, FlaskConical, TreePine, Mountain, HardHat, Users, Cog, Eye, EyeOff
 } from 'lucide-react'
 import { summarizeLaw, generateComplianceChecklist } from '../lib/aiSummarization'
-import { downloadLawPDF, generateComplianceChecklistPDF } from '../lib/pdfGenerator'
 import toast from 'react-hot-toast'
 
 export default function AiAnalysisPage() {
@@ -204,59 +202,6 @@ export default function AiAnalysisPage() {
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text)
     toast.success('คัดลอกลง Clipboard เรียบร้อย')
-  }
-
-  const handleExportPDF = async () => {
-    if (!summary) {
-      toast.error('ยังไม่มีผลการวิเคราะห์ให้ส่งออก')
-      return
-    }
-
-    const toastId = toast.loading('กำลังสร้างไฟล์ PDF...')
-    try {
-      const filename = `วิเคราะห์กฎหมาย_${lawTitle.substring(0, 30).replace(/[^a-z0-9]/gi, '_')}_${new Date().getTime()}.pdf`
-      await downloadLawPDF({
-        title: summary.title,
-        lawType: summary.lawType,
-        safetyCategory: summary.safetyCategory,
-        publishedDate: new Date().toLocaleDateString('th-TH'),
-        source: 'ระบบวิเคราะห์ AI Legal Registry'
-      }, summary, filename)
-      toast.success('ส่งออกไฟล์ PDF สำเร็จ!', { id: toastId })
-    } catch (err) {
-      toast.error('ไม่สามารถสร้างไฟล์ PDF ได้: ' + err.message, { id: toastId })
-    }
-  }
-
-  const handleExportChecklistPDF = async () => {
-    if (!checklist) {
-      toast.error('ยังไม่มี Checklist ให้ส่งออก')
-      return
-    }
-
-    const toastId = toast.loading('กำลังสร้างรายการตรวจสอบ PDF...')
-    try {
-      const checklistItems = checklist.map(task => ({
-        text: `${task.item} (ผู้รับผิดชอบ: ${task.responsible}, กำหนดส่ง: ${task.deadline})`,
-        completed: false
-      }))
-      
-      const filename = `รายการตรวจสอบความสอดคล้อง_${new Date().getTime()}.pdf`
-      const pdfBlob = await generateComplianceChecklistPDF(checklistItems, lawTitle)
-      
-      const url = URL.createObjectURL(pdfBlob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-      
-      toast.success('ส่งออกรายการตรวจสอบ PDF สำเร็จ!', { id: toastId })
-    } catch (err) {
-      toast.error('ไม่สามารถสร้างไฟล์ PDF ได้: ' + err.message, { id: toastId })
-    }
   }
 
   const getLawTypeBadgeColor = (type) => {
@@ -570,19 +515,10 @@ export default function AiAnalysisPage() {
         <div className="mt-8 space-y-8 animate-fadeIn">
           {/* Classification Result Badges */}
           <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 sm:p-8 shadow-xl">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-              <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                ผลการวิเคราะห์และระบุหมวดหมู่โดย AI
-              </h3>
-              <button
-                type="button"
-                onClick={handleExportPDF}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-4 py-2.5 text-xs font-bold transition shadow-md shadow-indigo-600/10 flex items-center gap-1.5"
-              >
-                <Download className="w-4 h-4" /> ส่งออก PDF
-              </button>
-            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              ผลการวิเคราะห์และระบุหมวดหมู่โดย AI
+            </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Type Badge Card */}
@@ -721,25 +657,16 @@ export default function AiAnalysisPage() {
                     Checklist แนะนำการดำเนินการที่เกี่ยวข้องกับกฎหมายใหม่นี้ คุณสามารถแก้ไขและนำเข้ารายงานงานต่อไป
                   </p>
                 </div>
-                <div className="flex gap-2 flex-wrap self-start sm:self-center">
-                  <button
-                    type="button"
-                    onClick={handleExportChecklistPDF}
-                    className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl px-4 py-2.5 text-xs font-bold transition shadow-md shadow-blue-600/10 flex items-center gap-1.5"
-                  >
-                    <FileCheck className="w-4 h-4" /> ส่งออก Checklist PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toast.success('บันทึกแผนมอบหมายและบันทึกความสอดคล้องสำเร็จ!')
-                      router.push('/tasks')
-                    }}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl px-5 py-2.5 text-xs font-bold transition shadow-md shadow-emerald-600/10 flex items-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> บันทึกและมอบหมายแผนปฏิบัติการ
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.success('บันทึกแผนมอบหมายและบันทึกความสอดคล้องสำเร็จ!')
+                    router.push('/tasks')
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl px-5 py-2.5 text-xs font-bold transition shadow-md shadow-emerald-600/10 flex items-center gap-1.5 self-start sm:self-center"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> บันทึกและมอบหมายแผนปฏิบัติการ
+                </button>
               </div>
 
               <div className="divide-y divide-slate-100">

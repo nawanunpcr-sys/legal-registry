@@ -22,6 +22,7 @@ export default function LawDetail() {
     if (id) {
       fetchLawDetail()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   const fetchLawDetail = async () => {

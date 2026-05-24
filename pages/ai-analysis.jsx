@@ -8,6 +8,7 @@ import {
   Flame, FlaskConical, TreePine, Mountain, HardHat, Users, Cog, Eye, EyeOff
 } from 'lucide-react'
 import { summarizeLaw, generateComplianceChecklist } from '../lib/aiSummarization'
+import { supabase, getCategories } from '../lib/supabase'
 import toast from 'react-hot-toast'
 
 export default function AiAnalysisPage() {
@@ -23,6 +24,7 @@ export default function AiAnalysisPage() {
   const [summary, setSummary] = useState(null)
   const [checklist, setChecklist] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [savingToRegistry, setSavingToRegistry] = useState(false)
 
   // Gemini API Key State
   const [apiKey, setApiKey] = useState('')
@@ -139,32 +141,62 @@ export default function AiAnalysisPage() {
     }
   }
 
-  const handleUrlFetch = () => {
+  const handleUrlFetch = async () => {
     if (!importUrl.trim()) {
       toast.error('กรุณากรอก URL กฎหมาย')
       return
     }
 
-    setLoading(true)
-    setTimeout(() => {
-      // High fidelity simulation for demo/URL fetch
-      let fetchedTitle = 'กฎกระทรวงความคืบหน้าด้านความปลอดภัยในการทำงาน พ.ศ. ๒๕๖๙'
-      let fetchedText = `ข้อบัญญัติเรื่องความปลอดภัยเกี่ยวกับสารเคมีและอัคคีภัยในนิคมอุตสาหกรรม โดยมีผลบังคับใช้นับจากวันประกาศในราชกิจจานุเบกษาเป็นต้นไป กำหนดให้ต้องมีเจ้าหน้าที่ความปลอดภัย (จป.) ระดับวิชาชีพคอยตรวจสอบมาตรฐาน และมีโทษปรับหากไม่ปฏิบัติตามมาตรฐานที่กรมสวัสดิการและคุ้มครองแรงงานกำหนด`
+    let parsedUrl
+    try {
+      parsedUrl = new URL(importUrl.trim())
+    } catch (err) {
+      toast.error('รูปแบบ URL ไม่ถูกต้อง')
+      return
+    }
 
-      if (importUrl.includes('osh.labour.go.th') || importUrl.includes('osh_')) {
-        fetchedTitle = 'ร่างกฎกระทรวง กำหนดมาตรฐานในการทำงานเกี่ยวกับงานประดาน้ำ พ.ศ. ๒๕๖๙'
-        fetchedText = 'กำหนดมาตรฐานในการบริหาร จัดการ และดำเนินการด้านความปลอดภัย อาชีวอนามัย และสภาพแวดล้อมในการทำงานเกี่ยวกับงานประดาน้ำเชิงพาณิชย์และงานก่อสร้างใต้น้ำ'
-      } else if (importUrl.includes('1887309.pdf')) {
-        fetchedTitle = 'พระราชบัญญัติ ความปลอดภัย อาชีวอนามัย และสภาพแวดล้อมในการทำงาน พ.ศ. ๒๕๕๔'
-        fetchedText = 'พระราชบัญญัติหลักที่คุ้มครองดูแลพนักงานด้าน OHS ป้องกันอัคคีภัย สารเคมีอันตราย และให้สิทธิการหยุดทำงานหากพบอันตรายร้ายแรง'
+    const host = parsedUrl.hostname.replace(/^www\./, '')
+    const source = host.includes('osh.labour.go.th')
+      ? 'osh'
+      : host.includes('ratchakitcha.soc.go.th')
+      ? 'royal-gazette'
+      : null
+
+    if (!source) {
+      toast.error('รองรับเฉพาะลิงก์ osh.labour.go.th และ ratchakitcha.soc.go.th')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/scrape-laws-v2?source=${source}&limit=20`)
+      const result = await response.json()
+
+      if (!result.success || !Array.isArray(result.data) || result.data.length === 0) {
+        throw new Error(result.error || 'ไม่พบข้อมูลจากลิงก์ที่ระบุ')
       }
 
-      setLawTitle(fetchedTitle)
-      setLawText(fetchedText)
+      const normalizedUrl = importUrl.trim().toLowerCase()
+      const matchedLaw = result.data.find((law) => law.link?.toLowerCase() === normalizedUrl)
+        || result.data.find((law) => normalizedUrl.includes(String(law.id).toLowerCase()))
+        || result.data[0]
+
+      setLawTitle(matchedLaw.title || '')
+      setLawText([
+        matchedLaw.summary,
+        matchedLaw.status ? `สถานะ: ${matchedLaw.status}` : '',
+        matchedLaw.lawType ? `ประเภท: ${matchedLaw.lawType}` : '',
+        matchedLaw.safetyCategory ? `หมวดหมู่: ${matchedLaw.safetyCategory}` : '',
+        matchedLaw.effectiveDate ? `วันที่บังคับใช้: ${matchedLaw.effectiveDate}` : '',
+        matchedLaw.link ? `แหล่งที่มา: ${matchedLaw.link}` : '',
+      ].filter(Boolean).join('\n'))
       setLoading(false)
-      toast.success('นำเข้าเนื้อหาจากลิงก์หน่วยงาน EHS สำเร็จ!')
+      toast.success('นำเข้าเนื้อหาจากลิงก์หน่วยงานรัฐสำเร็จ')
       setInputMode('text')
-    }, 1000)
+    } catch (err) {
+      toast.error(err.message || 'ไม่สามารถนำเข้าข้อมูลจากลิงก์ได้')
+      setLoading(false)
+    }
   }
 
   const handleAnalyze = async () => {
@@ -202,6 +234,93 @@ export default function AiAnalysisPage() {
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text)
     toast.success('คัดลอกลง Clipboard เรียบร้อย')
+  }
+
+  const normalizeLawType = (lawType) => {
+    if (lawType === 'พระราชบัญญัติ') return 'law'
+    if (lawType === 'กฎกระทรวง' || lawType === 'พระราชกฤษฎีกา') return 'regulation'
+    return 'announcement'
+  }
+
+  const handleSaveToRegistry = async () => {
+    if (!summary) return
+
+    setSavingToRegistry(true)
+    try {
+      let sourceHost = 'AI Analysis'
+      if (importUrl) {
+        try {
+          sourceHost = new URL(importUrl).hostname
+        } catch (err) {
+          sourceHost = importUrl
+        }
+      }
+
+      const { data: categories } = await getCategories()
+      const matchedCategory = categories?.find((category) =>
+        category.name === summary.safetyCategory ||
+        category.name?.includes(summary.safetyCategory?.split(' ')[0])
+      )
+
+      const { data: newLaw, error: lawError } = await supabase
+        .from('laws')
+        .insert([{
+          law_code: `AI-${Date.now()}`,
+          title: summary.title || lawTitle || 'กฎหมายจาก AI',
+          category_id: matchedCategory?.id || null,
+          description: summary.summary || summary.keyPoints?.join('\n') || lawText.slice(0, 500),
+          subject: summary.safetyCategory,
+          effective_date: null,
+          responsible_person: 'ฝ่าย EHS / จป.วิชาชีพ',
+          review_frequency: summary.reviewFrequency,
+          related_documents: summary.relatedDocuments?.join('\n') || importUrl,
+          required_actions: summary.actionItems?.join('\n'),
+          priority: summary.penalties?.length > 0 ? 'critical' : 'high',
+          compliance_status: 'pending',
+          issuing_authority: sourceHost,
+          law_type: normalizeLawType(summary.lawType),
+          status: 'active',
+          created_at: new Date().toISOString(),
+          last_updated: new Date().toISOString(),
+        }])
+        .select()
+
+      if (lawError) throw lawError
+
+      const lawId = newLaw?.[0]?.id
+
+      if (lawId) {
+        const analysisPayload = {
+          law_id: lawId,
+          analysis_source: apiKey ? 'gemini' : 'local_rules',
+          raw_analysis: JSON.stringify(summary),
+          where_to_do: summary.affectedParties?.join(', ') || 'ฝ่ายที่เกี่ยวข้อง',
+          what_to_do: summary.actionItems || [],
+          is_approved: false,
+          created_by: 'AI Analysis',
+        }
+
+        const { error: analysisError } = await supabase
+          .from('ai_analyses')
+          .insert([analysisPayload])
+
+        if (analysisError) {
+          await supabase.from('ai_analyses').insert([{
+            law_id: lawId,
+            summary: summary.summary || summary.title,
+            key_points: summary.keyPoints || [],
+            created_at: new Date().toISOString(),
+          }])
+        }
+      }
+
+      toast.success('บันทึกผล AI เข้าทะเบียนกฎหมายและ Supabase แล้ว')
+      router.push(lawId ? `/legal/${lawId}` : '/legal')
+    } catch (err) {
+      toast.error('บันทึกเข้าทะเบียนไม่สำเร็จ: ' + err.message)
+    } finally {
+      setSavingToRegistry(false)
+    }
   }
 
   const getLawTypeBadgeColor = (type) => {
@@ -519,6 +638,20 @@ export default function AiAnalysisPage() {
               <CheckCircle2 className="w-5 h-5 text-emerald-500" />
               ผลการวิเคราะห์และระบุหมวดหมู่โดย AI
             </h3>
+            <div className="mb-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleSaveToRegistry}
+                disabled={savingToRegistry}
+                className="btn-success"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {savingToRegistry ? 'กำลังบันทึกเข้า Supabase...' : 'บันทึกผล AI เข้าทะเบียนกฎหมาย'}
+              </button>
+              <Link href="/legal" className="btn-secondary">
+                ไปที่ทะเบียนกฎหมาย <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Type Badge Card */}

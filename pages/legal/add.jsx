@@ -99,7 +99,9 @@ export default function AddLawPage() {
 
       const lawId = newLaw[0].id
 
-      // Add department mappings
+      // Add department mappings and create first tracking records for Dashboard/Compliance.
+      const trackingDepartmentIds = selectedDepartments.length > 0 ? selectedDepartments : [null]
+
       if (selectedDepartments.length > 0) {
         const mappings = selectedDepartments.map(deptId => ({
           law_id: lawId,
@@ -111,6 +113,63 @@ export default function AddLawPage() {
           .insert(mappings)
 
         if (mappingError) throw mappingError
+      }
+
+      const dueDate = new Date()
+      dueDate.setDate(dueDate.getDate() + 30)
+
+      const tasks = trackingDepartmentIds.map((deptId, index) => ({
+        task_code: `${form.law_code || 'LAW'}-${index + 1}`,
+        law_id: lawId,
+        department_id: deptId,
+        title: `ประเมินความสอดคล้อง: ${form.title}`,
+        description: form.required_actions || form.description || 'ตรวจสอบข้อกำหนดและบันทึกผลการปฏิบัติตามกฎหมาย',
+        status: 'pending',
+        responsible_person: form.responsible_person,
+        due_date: dueDate.toISOString().slice(0, 10),
+        jorpor_approved: false,
+        created_at: new Date().toISOString(),
+      }))
+
+      let { error: taskError } = await supabase
+        .from('tasks')
+        .insert(tasks)
+
+      if (taskError && taskError.message?.includes('task_code')) {
+        const fallbackTasks = tasks.map(({ task_code, ...task }) => task)
+        const retry = await supabase
+          .from('tasks')
+          .insert(fallbackTasks)
+        taskError = retry.error
+      }
+
+      if (taskError) {
+        toast.error('บันทึกกฎหมายแล้ว แต่สร้างงานติดตามไม่สำเร็จ: ' + taskError.message)
+      }
+
+      const complianceRecords = trackingDepartmentIds.map((deptId) => ({
+        law_id: lawId,
+        department_id: deptId,
+        compliance_status: form.compliance_status === 'compliant' ? 'compliant' : 'not_evaluated',
+        compliance_score: form.compliance_status === 'compliant' ? 100 : 0,
+        evaluation_year: new Date().getFullYear(),
+        created_at: new Date().toISOString(),
+      }))
+
+      let { error: complianceError } = await supabase
+        .from('compliance_records')
+        .insert(complianceRecords)
+
+      if (complianceError && complianceError.message?.includes('evaluation_year')) {
+        const fallbackRecords = complianceRecords.map(({ evaluation_year, ...record }) => record)
+        const retry = await supabase
+          .from('compliance_records')
+          .insert(fallbackRecords)
+        complianceError = retry.error
+      }
+
+      if (complianceError) {
+        toast.error('บันทึกกฎหมายแล้ว แต่สร้างรายการประเมินความสอดคล้องไม่สำเร็จ: ' + complianceError.message)
       }
 
       toast.success('เพิ่มกฎหมายใหม่เรียบร้อยแล้ว')

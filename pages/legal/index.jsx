@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import Layout from '../../components/Layout'
-import { BookOpen, ChevronDown, ChevronRight, Search, Plus, AlertCircle } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Search, Plus, AlertCircle, Download } from 'lucide-react'
 import { getLaws, getCategories } from '../../lib/supabase'
+import { exportToCsv, exportToExcel } from '../../lib/exportUtils'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 
@@ -52,6 +53,21 @@ export default function LegalRegistry() {
     }
   }
 
+  const exportColumns = [
+    { label: 'รหัสกฎหมาย', value: (law) => law.law_code },
+    { label: 'ชื่อกฎหมาย', value: (law) => law.title },
+    { label: 'หมวดหมู่', value: (law) => law.law_categories?.name },
+    { label: 'สถานะ', value: (law) => law.compliance_status },
+    { label: 'ความสำคัญ', value: (law) => law.priority },
+    { label: 'ผู้รับผิดชอบ', value: (law) => law.responsible_person },
+    { label: 'วันที่บังคับใช้', value: (law) => law.effective_date },
+    { label: 'ความถี่ตรวจติดตาม', value: (law) => law.review_frequency },
+    {
+      label: 'แผนกที่เกี่ยวข้อง',
+      value: (law) => law.law_department_mapping?.map((item) => item.departments?.name).filter(Boolean),
+    },
+  ]
+
   if (loading) {
     return (
       <Layout>
@@ -79,13 +95,31 @@ export default function LegalRegistry() {
               <p className="text-slate-600">จัดการและติดตามการสอดคล้องกฎหมาย</p>
             </div>
           </div>
-          <Link
-            href="/legal/add"
-            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-medium transition"
-          >
-            <Plus className="w-5 h-5" />
-            เพิ่มกฎหมาย
-          </Link>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => exportToCsv(filteredLaws, exportColumns, 'legal-registry.csv')}
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-medium transition"
+            >
+              <Download className="w-4 h-4" />
+              CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => exportToExcel(filteredLaws, exportColumns, 'legal-registry.xls')}
+              className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium transition"
+            >
+              <Download className="w-4 h-4" />
+              Excel
+            </button>
+            <Link
+              href="/legal/add"
+              className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-medium transition"
+            >
+              <Plus className="w-5 h-5" />
+              เพิ่มกฎหมาย
+            </Link>
+          </div>
         </div>
 
         {/* Search */}

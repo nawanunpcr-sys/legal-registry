@@ -21,7 +21,7 @@ export default function Login() {
       const success = login(username, password)
       if (success) {
         toast.success('เข้าสู่ระบบสำเร็จ')
-        router.push('/dashboard')
+        router.push('/')
       } else {
         setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
         toast.error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')

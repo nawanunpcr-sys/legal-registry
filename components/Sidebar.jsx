@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import {
   LayoutDashboard, BookOpen, Brain, ClipboardList,
-  CheckSquare, Shield, Settings, ChevronRight,
+  Shield, Settings, ChevronRight,
   Building2, ExternalLink, Sparkles, LogOut, Book, Bot
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -28,6 +28,9 @@ const menu = [
     group: 'AI วิเคราะห์',
     items: [
       { href: '/ai-analysis', label: 'วิเคราะห์ด้วย AI', icon: Brain },
+      { href: 'https://gemini.google.com', label: 'Google Gemini', icon: Sparkles, external: true },
+      { href: 'https://notebooklm.google.com', label: 'NotebookLM', icon: Book, external: true },
+      { href: 'https://chatgpt.com', label: 'ChatGPT', icon: Bot, external: true },
     ]
   },
   {
@@ -47,27 +50,6 @@ const menu = [
     items: [
       { href: '/settings', label: 'ตั้งค่าระบบ', icon: Settings },
     ]
-  },
-]
-
-const aiLinks = [
-  {
-    label: 'Google Gemini',
-    url: 'https://gemini.google.com',
-    color: 'text-blue-400',
-    icon: Sparkles
-  },
-  {
-    label: 'NotebookLM',
-    url: 'https://notebooklm.google.com',
-    color: 'text-emerald-400',
-    icon: Book
-  },
-  {
-    label: 'ChatGPT',
-    url: 'https://chat.openai.com',
-    color: 'text-gray-400',
-    icon: Bot
   },
 ]
 
@@ -103,34 +85,6 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* AI Quick Links */}
-      <div className="px-4 py-3 border-b border-white/10">
-        <p className="text-blue-400 text-xs font-semibold mb-2 flex items-center gap-1">
-          <Sparkles className="w-3 h-3" /> AI Tools
-        </p>
-        <div className="flex gap-2">
-          {aiLinks.map((ai) => {
-            const Icon = ai.icon
-            return (
-              <a
-                key={ai.label}
-                href={ai.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={ai.label}
-                className="flex-1 rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-center text-xs text-slate-100 hover:bg-slate-800 transition-colors flex flex-col items-center gap-1"
-              >
-                <Icon className={`w-4 h-4 ${ai.color}`} />
-                <span className="font-medium leading-tight">
-                  {ai.label.split(' ')[0]}
-                </span>
-              </a>
-            )
-          })}
-        </div>
-      </div>
-
-
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3 scrollbar-thin">
         {menu.map((group) => (
@@ -142,20 +96,36 @@ export default function Sidebar() {
             {group.items.map((item) => {
               const Icon = item.icon
               const isActive = router.pathname === item.href
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={clsx(
-                    'flex items-center gap-3 px-3 py-2.5 mx-2 rounded-xl text-sm transition-all mb-0.5',
-                    isActive
-                      ? 'bg-white text-slate-900 font-semibold shadow-lg'
-                      : 'text-blue-100/80 hover:bg-white/10 hover:text-white'
-                  )}
-                >
+              const className = clsx(
+                'flex items-center gap-3 px-3 py-2.5 mx-2 rounded-xl text-sm transition-all mb-0.5',
+                isActive
+                  ? 'bg-white text-slate-900 font-semibold shadow-lg'
+                  : item.external
+                  ? 'text-indigo-100 hover:bg-indigo-500/15 hover:text-white'
+                  : 'text-blue-100/80 hover:bg-white/10 hover:text-white'
+              )
+
+              const content = (
+                <>
                   <Icon className="w-4 h-4 flex-shrink-0" />
                   <span className="flex-1 text-sm">{item.label}</span>
-                  {isActive && <ChevronRight className="w-3 h-3" />}
+                  {item.external ? <ExternalLink className="w-3 h-3 opacity-70" /> : isActive && <ChevronRight className="w-3 h-3" />}
+                </>
+              )
+
+              return item.external ? (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={className}
+                >
+                  {content}
+                </a>
+              ) : (
+                <Link key={item.href} href={item.href} className={className}>
+                  {content}
                 </Link>
               )
             })}

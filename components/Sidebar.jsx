@@ -3,7 +3,8 @@ import { useRouter } from 'next/router'
 import {
   LayoutDashboard, BookOpen, Brain, ClipboardList,
   Shield, Settings, ChevronRight,
-  Building2, ExternalLink, Sparkles, LogOut, Book, Bot
+  Building2, ExternalLink, Sparkles, LogOut, Book, Bot,
+  Trash2, FileText, MessageSquare
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../hooks/useAuth'
@@ -21,6 +22,8 @@ const menu = [
     group: 'กฎหมาย',
     items: [
       { href: '/legal', label: 'รายการกฎหมาย', icon: BookOpen },
+      { href: '/legal/repealed', label: 'กฎหมายที่ยกเลิก', icon: Trash2 },
+      { href: '/legal/management-review', label: 'Management Review', icon: FileText },
       { href: '/legal/add', label: 'เพิ่มกฎหมาย', icon: BookOpen },
     ]
   },
@@ -43,6 +46,12 @@ const menu = [
     group: 'ประเมินความสอดคล้อง',
     items: [
       { href: '/compliance', label: 'ผลการประเมิน (จป.)', icon: Shield },
+    ]
+  },
+  {
+    group: 'การสื่อสาร',
+    items: [
+      { href: '/communication-matrix', label: 'ตารางการสื่อสาร (ISD-86)', icon: MessageSquare },
     ]
   },
   {

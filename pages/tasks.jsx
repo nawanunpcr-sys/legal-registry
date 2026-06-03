@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
 import { 
   ClipboardList, CheckCircle2, AlertCircle, Clock, Search, 
@@ -12,64 +12,37 @@ export default function TasksPage() {
   const [selectedStatus, setSelectedStatus] = useState('all')
   const [selectedDept, setSelectedDept] = useState('all')
 
-  // Mock initial tasks for demo
-  const [tasks, setTasks] = useState([
-    {
-      id: 'task_001',
-      title: 'จัดทำบัญชีรายชื่อสารเคมีอันตรายและเอกสารความปลอดภัย (SDS)',
-      lawTitle: 'กฎกระทรวง กำหนดมาตรฐานเกี่ยวกับสารเคมีอันตราย พ.ศ. ๒๕๕๖',
-      department: 'ฝ่าย EHS',
-      assignee: 'สมชาย รักปลอดภัย',
-      status: 'completed',
-      dueDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-      reviewFrequency: 'ทุก 6 เดือน',
-      progress: 100
-    },
-    {
-      id: 'task_002',
-      title: 'ดำเนินการตรวจวัดสารเคมีในบรรยากาศพื้นที่จัดเก็บชั้น ๒',
-      lawTitle: 'กฎกระทรวง กำหนดมาตรฐานเกี่ยวกับสารเคมีอันตราย พ.ศ. ๒๕๕๖',
-      department: 'ฝ่ายวิศวกรรม',
-      assignee: 'วิชัย เก่งคำนวณ',
-      status: 'pending_approval',
-      dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-      reviewFrequency: 'ทุก 6 เดือน',
-      progress: 90
-    },
-    {
-      id: 'task_003',
-      title: 'ตรวจสอบระบบสายดินและตู้คอนโทรลไฟฟ้าหม้อต้มความร้อน',
-      lawTitle: 'กฎกระทรวง กำหนดมาตรฐานเกี่ยวกับไฟฟ้า พ.ศ. ๒๕๕๘',
-      department: 'ฝ่ายซ่อมบำรุง',
-      assignee: 'มานะ อุปกรณ์ดี',
-      status: 'in_progress',
-      dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-      reviewFrequency: 'ทุก 6 เดือน',
-      progress: 60
-    },
-    {
-      id: 'task_004',
-      title: 'จัดการฝึกอบรมจำลองเหตุฉุกเฉินและปฏิบัติงานที่อับอากาศ',
-      lawTitle: 'กฎกระทรวง กำหนดมาตรฐานในที่อับอากาศ พ.ศ. ๒๕๖๒',
-      department: 'ฝ่ายทรัพยากรบุคคล (HR)',
-      assignee: 'สุดา ใจประสาน',
-      status: 'pending',
-      dueDate: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000),
-      reviewFrequency: 'ทุก 6 เดือน',
-      progress: 0
-    },
-    {
-      id: 'task_005',
-      title: 'วิศวกรภายนอกตรวจทดสอบหม้อน้ำ (Boiler) และออกใบรับรองประจำปี',
-      lawTitle: 'ประกาศกระทรวงอุตสาหกรรม มาตรการความปลอดภัยเกี่ยวกับหม้อน้ำ พ.ศ. ๒๕๖๕',
-      department: 'ฝ่ายวิศวกรรม',
-      assignee: 'วิทยา พลังงาน',
-      status: 'overdue',
-      dueDate: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
-      reviewFrequency: 'ทุก 3 เดือน',
-      progress: 40
+  const [tasks, setTasks] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadTasks()
+  }, [])
+
+  const loadTasks = async () => {
+    try {
+      const { getTasks } = await import('../lib/supabase')
+      const { data, error } = await getTasks()
+      if (error) throw error
+      
+      const formatted = (data || []).map(t => ({
+        id: t.id,
+        title: t.title || 'ไม่มีชื่อแผนงาน',
+        lawTitle: t.laws?.title || '-',
+        department: t.departments?.name || '-',
+        assignee: t.assigned_to || '-', 
+        status: t.status || 'pending',
+        dueDate: t.due_date ? new Date(t.due_date) : new Date(),
+        reviewFrequency: t.laws?.review_frequency || 'ไม่ระบุ',
+        progress: t.status === 'completed' ? 100 : t.status === 'pending_approval' ? 90 : t.status === 'in_progress' ? 50 : 0
+      }))
+      setTasks(formatted)
+    } catch (err) {
+      toast.error('โหลดข้อมูลผิดพลาด')
+    } finally {
+      setLoading(false)
     }
-  ])
+  }
 
   // Handles updating task status
   const handleUpdateStatus = (id, newStatus) => {

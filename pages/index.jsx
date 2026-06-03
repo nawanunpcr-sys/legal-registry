@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { getDashboardData } from '../lib/supabase'
+import { normalizeComplianceStatus } from '../lib/statusUtils'
 import {
   BookOpen, CheckCircle2, Clock, AlertTriangle,
   TrendingUp, Users, FileCheck, Activity,
@@ -45,9 +46,13 @@ export default function Dashboard() {
   const totalTasks = data.tasks.length
   const completedTasks = data.tasks.filter(t => t.status === 'completed').length
   const pendingApproval = data.tasks.filter(t => t.status === 'pending_approval').length
+  const normalizedCompliance = data.compliance.map(item => ({
+    ...item,
+    normalizedStatus: normalizeComplianceStatus(item.compliance_status),
+  }))
   const complianceRate = data.compliance.length > 0
-    ? Math.round(data.compliance.filter(c =>
-        c.compliance_status === 'compliant').length / data.compliance.length * 100)
+    ? Math.round(normalizedCompliance.filter(c =>
+        c.normalizedStatus === 'compliant').length / data.compliance.length * 100)
     : 0
 
   const statsCards = [
@@ -63,7 +68,7 @@ export default function Dashboard() {
     {
       label: 'ประเมินสอดคล้องแล้ว',
       value: `${complianceRate}%`,
-      sub: `${data.compliance.filter(c => c.compliance_status === 'compliant').length} / ${data.compliance.length} รายการ`,
+      sub: `${normalizedCompliance.filter(c => c.normalizedStatus === 'compliant').length} / ${data.compliance.length} รายการ`,
       icon: CheckCircle2,
       color: 'from-emerald-500 to-emerald-600',
       bg: 'bg-emerald-50',
@@ -116,17 +121,17 @@ export default function Dashboard() {
   ].filter(d => d.value > 0)
 
   const complianceData = [
-    { name: 'สอดคล้อง', value: data.compliance.filter(c => c.compliance_status === 'compliant').length, color: '#10B981' },
-    { name: 'บางส่วน', value: data.compliance.filter(c => c.compliance_status === 'partial').length, color: '#F59E0B' },
-    { name: 'ไม่สอดคล้อง', value: data.compliance.filter(c => c.compliance_status === 'non_compliant').length, color: '#EF4444' },
-    { name: 'ยังไม่ประเมิน', value: data.compliance.filter(c => c.compliance_status === 'not_evaluated').length, color: '#CBD5E1' },
+    { name: 'สอดคล้อง', value: normalizedCompliance.filter(c => c.normalizedStatus === 'compliant').length, color: '#10B981' },
+    { name: 'บางส่วน', value: normalizedCompliance.filter(c => c.normalizedStatus === 'partial').length, color: '#F59E0B' },
+    { name: 'ไม่สอดคล้อง', value: normalizedCompliance.filter(c => c.normalizedStatus === 'non_compliant').length, color: '#EF4444' },
+    { name: 'ยังไม่ประเมิน', value: normalizedCompliance.filter(c => c.normalizedStatus === 'not_evaluated').length, color: '#CBD5E1' },
   ].filter(d => d.value > 0)
 
   const deptBarData = data.departments.map(dept => {
     const deptTasks = data.tasks.filter(t => t.department_id === dept.id)
-    const deptCompliance = data.compliance.filter(c => c.department_id === dept.id)
+    const deptCompliance = normalizedCompliance.filter(c => c.department_id === dept.id)
     const score = deptCompliance.length > 0
-      ? Math.round(deptCompliance.filter(c => c.compliance_status === 'compliant').length / deptCompliance.length * 100)
+      ? Math.round(deptCompliance.filter(c => c.normalizedStatus === 'compliant').length / deptCompliance.length * 100)
       : 0
     return {
       name: dept.code || dept.name.substring(0, 6),

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import Layout from '../components/Layout'
 import { Shield, ChartBar, Download, LayoutDashboard, Building2, AlertCircle } from 'lucide-react'
 import { getCompliance } from '../lib/supabase'
+import { normalizeComplianceStatus } from '../lib/statusUtils'
 import { exportToCsv, exportToExcel } from '../lib/exportUtils'
 import toast from 'react-hot-toast'
 
@@ -36,10 +37,11 @@ export default function CompliancePage() {
 
   const stats = useMemo(() => {
     const total = records.length
-    const compliant = records.filter((item) => item.compliance_status === 'compliant').length
-    const partial = records.filter((item) => item.compliance_status === 'partial').length
-    const nonCompliant = records.filter((item) => item.compliance_status === 'non_compliant').length
-    const notEvaluated = records.filter((item) => item.compliance_status === 'not_evaluated').length
+    const normalizedRecords = records.map((item) => normalizeComplianceStatus(item.compliance_status))
+    const compliant = normalizedRecords.filter((status) => status === 'compliant').length
+    const partial = normalizedRecords.filter((status) => status === 'partial').length
+    const nonCompliant = normalizedRecords.filter((status) => status === 'non_compliant').length
+    const notEvaluated = normalizedRecords.filter((status) => status === 'not_evaluated').length
     return {
       total,
       compliant,
@@ -54,7 +56,7 @@ export default function CompliancePage() {
     { label: 'กฎหมาย', value: (item) => item.laws?.title },
     { label: 'รหัสกฎหมาย', value: (item) => item.laws?.law_code },
     { label: 'แผนก', value: (item) => item.departments?.name },
-    { label: 'สถานะ', value: (item) => statusMeta[item.compliance_status]?.label || item.compliance_status },
+    { label: 'สถานะ', value: (item) => statusMeta[normalizeComplianceStatus(item.compliance_status)]?.label || item.compliance_status },
     { label: 'คะแนน', value: (item) => item.compliance_score },
     { label: 'งานที่เกี่ยวข้อง', value: (item) => item.tasks?.title },
   ]
@@ -156,7 +158,8 @@ export default function CompliancePage() {
                   </thead>
                   <tbody>
                     {records.map((record) => {
-                      const meta = statusMeta[record.compliance_status] || statusMeta.not_evaluated
+                      const status = normalizeComplianceStatus(record.compliance_status)
+                      const meta = statusMeta[status] || statusMeta.not_evaluated
                       return (
                         <tr key={record.id} className="border-b hover:bg-slate-50">
                           <td className="px-4 py-3">

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import Layout from '../../components/Layout'
-import { BookOpen, ChevronDown, ChevronRight, Search, Plus, AlertCircle, Download } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Search, Plus, AlertCircle, Download, Trash2, FileText } from 'lucide-react'
 import { getLaws, getCategories } from '../../lib/supabase'
+import { isCompliantStatus, isNonCompliantStatus, normalizeComplianceStatus } from '../../lib/statusUtils'
 import { exportToCsv, exportToExcel } from '../../lib/exportUtils'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
@@ -37,19 +38,35 @@ export default function LegalRegistry() {
     law.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     law.law_code?.toLowerCase().includes(searchTerm.toLowerCase())
   )
+  const activeFilteredLaws = filteredLaws.filter(law => !law.is_cancelled)
+  const compliantCount = activeFilteredLaws.filter(law => isCompliantStatus(law.compliance_status)).length
+  const nonCompliantCount = activeFilteredLaws.filter(law => isNonCompliantStatus(law.compliance_status)).length
+  const displayCategories = [
+    ...categories,
+    ...(filteredLaws.some(law => !law.category_id)
+      ? [{ id: 'uncategorized', name: 'ไม่ระบุหมวดหมู่', color: '#64748B' }]
+      : []),
+  ]
 
   const getLawsByCategory = (categoryId) => {
+    if (categoryId === 'uncategorized') {
+      return filteredLaws.filter(law => !law.category_id)
+    }
+
     return filteredLaws.filter(law => law.category_id === categoryId)
   }
 
   const complianceStats = (laws) => {
     if (!laws.length) return { compliant: 0, nonCompliant: 0, total: 0 }
-    const compliant = laws.filter(l => l.compliance_status === 'compliant').length
+    const activeLaws = laws.filter(l => !l.is_cancelled)
+    const compliant = activeLaws.filter(l => isCompliantStatus(l.compliance_status)).length
     return {
       compliant,
-      nonCompliant: laws.length - compliant,
-      total: laws.length,
-      percentage: Math.round((compliant / laws.length) * 100)
+      nonCompliant: activeLaws.filter(l => isNonCompliantStatus(l.compliance_status)).length,
+      total: activeLaws.length,
+      percentage: activeLaws.length > 0
+        ? Math.round((compliant / activeLaws.length) * 100)
+        : 0
     }
   }
 
@@ -96,6 +113,20 @@ export default function LegalRegistry() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2 justify-end">
+            <Link
+              href="/legal/repealed"
+              className="flex items-center gap-2 bg-red-100 border border-red-300 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 font-medium transition"
+            >
+              <Trash2 className="w-4 h-4" />
+              กฎหมายที่ยกเลิก
+            </Link>
+            <Link
+              href="/legal/management-review"
+              className="flex items-center gap-2 bg-purple-100 border border-purple-300 text-purple-700 px-4 py-2 rounded-lg hover:bg-purple-200 font-medium transition"
+            >
+              <FileText className="w-4 h-4" />
+              Management Review
+            </Link>
             <button
               type="button"
               onClick={() => exportToCsv(filteredLaws, exportColumns, 'legal-registry.csv')}
@@ -139,29 +170,25 @@ export default function LegalRegistry() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">
           <p className="text-sm text-blue-600 font-medium mb-1">รวมกฎหมายทั้งหมด</p>
-          <p className="text-2xl font-bold text-blue-900">{filteredLaws.length}</p>
+          <p className="text-2xl font-bold text-blue-900">{activeFilteredLaws.length}</p>
         </div>
         <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg">
           <p className="text-sm text-green-600 font-medium mb-1">สอดคล้องแล้ว</p>
           <p className="text-2xl font-bold text-green-900">
-            {filteredLaws.filter(l => l.compliance_status === 'compliant').length}
+            {compliantCount}
           </p>
         </div>
         <div className="bg-gradient-to-br from-red-50 to-red-100 p-4 rounded-lg">
           <p className="text-sm text-red-600 font-medium mb-1">ไม่สอดคล้อง</p>
           <p className="text-2xl font-bold text-red-900">
-            {filteredLaws.filter(l => l.compliance_status === 'non-compliant').length}
+            {nonCompliantCount}
           </p>
         </div>
         <div className="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-lg">
           <p className="text-sm text-amber-600 font-medium mb-1">อัตราสอดคล้อง</p>
           <p className="text-2xl font-bold text-amber-900">
-            {filteredLaws.length > 0
-              ? Math.round(
-                  (filteredLaws.filter(l => l.compliance_status === 'compliant').length /
-                    filteredLaws.length) *
-                    100
-                )
+            {activeFilteredLaws.length > 0
+              ? Math.round((compliantCount / activeFilteredLaws.length) * 100)
               : 0}
             %
           </p>
@@ -170,14 +197,14 @@ export default function LegalRegistry() {
 
       {/* Categories and Laws */}
       <div className="bg-white rounded-lg shadow">
-        {categories.length === 0 ? (
+        {displayCategories.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             <AlertCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>ไม่มีหมวดหมู่กฎหมาย</p>
           </div>
         ) : (
           <div className="divide-y">
-            {categories.map((category) => {
+            {displayCategories.map((category) => {
               const categoryLaws = getLawsByCategory(category.id)
               const stats = complianceStats(categoryLaws)
               const isExpanded = expandedCategory === category.id
@@ -240,62 +267,7 @@ export default function LegalRegistry() {
                       ) : (
                         <div className="divide-y">
                           {categoryLaws.map((law) => (
-                            <Link
-                              key={law.id}
-                              href={`/legal/${law.id}`}
-                            >
-                              <div
-                                className="px-6 py-4 hover:bg-blue-50 transition cursor-pointer"
-                              >
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-1">
-                                    <h4 className="font-medium text-slate-900 mb-1">
-                                      {law.title}
-                                    </h4>
-                                    <p className="text-xs text-gray-600 mb-2">
-                                      รหัส: {law.law_code}
-                                    </p>
-                                    <div className="flex flex-wrap gap-2">
-                                      <span
-                                        className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                          law.compliance_status === 'compliant'
-                                            ? 'bg-green-100 text-green-700'
-                                            : 'bg-red-100 text-red-700'
-                                        }`}
-                                      >
-                                        {law.compliance_status === 'compliant'
-                                          ? '✓ สอดคล้อง'
-                                          : '✗ ไม่สอดคล้อง'}
-                                      </span>
-                                      {law.priority && (
-                                        <span
-                                          className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                            law.priority === 'critical'
-                                              ? 'bg-red-100 text-red-700'
-                                              : law.priority === 'high'
-                                              ? 'bg-orange-100 text-orange-700'
-                                              : 'bg-blue-100 text-blue-700'
-                                          }`}
-                                        >
-                                          {law.priority === 'critical'
-                                            ? 'วิกฤต'
-                                            : law.priority === 'high'
-                                            ? 'สูง'
-                                            : 'ปกติ'}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="text-right ml-4">
-                                    <p className="text-sm font-medium text-gray-600">
-                                      {law.last_updated
-                                        ? new Date(law.last_updated).toLocaleDateString('th-TH')
-                                        : '-'}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            </Link>
+                            <LawListItem key={law.id} law={law} />
                           ))}
                         </div>
                       )}
@@ -308,5 +280,69 @@ export default function LegalRegistry() {
         )}
       </div>
     </Layout>
+  )
+}
+
+function LawListItem({ law }) {
+  const status = normalizeComplianceStatus(law.compliance_status)
+  const isCompliant = status === 'compliant'
+  const isNonCompliant = status === 'non_compliant'
+
+  return (
+    <Link href={`/legal/${law.id}`}>
+      <div className="px-6 py-4 hover:bg-blue-50 transition cursor-pointer">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <h4 className="font-medium text-slate-900 mb-1">
+              {law.title}
+            </h4>
+            <p className="text-xs text-gray-600 mb-2">
+              รหัส: {law.law_code || law.id}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <span
+                className={`text-xs px-2 py-1 rounded-full font-medium ${
+                  isCompliant
+                    ? 'bg-green-100 text-green-700'
+                    : isNonCompliant
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                {isCompliant
+                  ? 'สอดคล้อง'
+                  : isNonCompliant
+                  ? 'ไม่สอดคล้อง'
+                  : 'รอตรวจสอบ'}
+              </span>
+              {law.priority && (
+                <span
+                  className={`text-xs px-2 py-1 rounded-full font-medium ${
+                    law.priority === 'critical'
+                      ? 'bg-red-100 text-red-700'
+                      : law.priority === 'high'
+                      ? 'bg-orange-100 text-orange-700'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}
+                >
+                  {law.priority === 'critical'
+                    ? 'วิกฤต'
+                    : law.priority === 'high'
+                    ? 'สูง'
+                    : 'ปกติ'}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="text-right ml-4">
+            <p className="text-sm font-medium text-gray-600">
+              {law.last_updated
+                ? new Date(law.last_updated).toLocaleDateString('th-TH')
+                : '-'}
+            </p>
+          </div>
+        </div>
+      </div>
+    </Link>
   )
 }

@@ -5,7 +5,9 @@ import {
   BookOpen, ChevronLeft, FileText, Users, Calendar,
   CheckCircle2, AlertCircle, Edit3, Save, X, BarChart3
 } from 'lucide-react'
-import { supabase } from '../../lib/supabase'
+import { getLawById, updateLawById } from '../../lib/supabase'
+import { isCompliantStatus, normalizeComplianceStatus } from '../../lib/statusUtils'
+import { formatDisplayDate } from '../../lib/dateUtils'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 
@@ -28,27 +30,12 @@ export default function LawDetail() {
   const fetchLawDetail = async () => {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('laws')
-        .select(`
-          *,
-          law_categories(name, color),
-          law_department_mapping(*, departments(name, code))
-        `)
-        .eq('id', id)
-        .single()
+      const { data, tasks, error } = await getLawById(id)
 
-      if (error) throw error
-
+      if (error) throw new Error(error)
+      if (!data) throw new Error('Law not found')
       setLaw(data)
       setEditData(data)
-
-      // Fetch compliance tasks for this law
-      const { data: tasks } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('law_id', id)
-
       setComplianceTasks(tasks || [])
     } catch (err) {
       toast.error('ไม่สามารถโหลดข้อมูลกฎหมายได้')
@@ -60,19 +47,16 @@ export default function LawDetail() {
 
   const handleSaveEdit = async () => {
     try {
-      const { error } = await supabase
-        .from('laws')
-        .update({
-          title: editData.title,
-          description: editData.description,
-          compliance_status: editData.compliance_status,
-          priority: editData.priority,
-        })
-        .eq('id', id)
+      const { data, error } = await updateLawById(id, {
+        title: editData.title,
+        description: editData.description,
+        compliance_status: normalizeComplianceStatus(editData.compliance_status),
+      })
 
-      if (error) throw error
+      if (error) throw new Error(error)
 
-      setLaw(editData)
+      setLaw({ ...law, ...editData, ...data })
+      setEditData({ ...law, ...editData, ...data })
       setIsEditing(false)
       toast.success('บันทึกการเปลี่ยนแปลงเรียบร้อยแล้ว')
     } catch (err) {
@@ -82,18 +66,13 @@ export default function LawDetail() {
 
   const handleApprove = async () => {
     try {
-      const { error } = await supabase
-        .from('laws')
-        .update({
-          compliance_status: 'compliant',
-          approved_by: 'current_user',
-          approved_at: new Date().toISOString(),
-        })
-        .eq('id', id)
+      const { data, error } = await updateLawById(id, {
+        compliance_status: 'compliant',
+      })
 
-      if (error) throw error
+      if (error) throw new Error(error)
 
-      setLaw({ ...law, compliance_status: 'compliant' })
+      setLaw({ ...law, ...data })
       toast.success('อนุมัติการสอดคล้องแล้ว')
     } catch (err) {
       toast.error('ไม่สามารถอนุมัติได้')
@@ -126,12 +105,13 @@ export default function LawDetail() {
 
   const summaryPoints = [
     { label: 'ผู้รับผิดชอบ', value: law.responsible_person || '-' },
-    { label: 'วันที่บังคับใช้', value: law.effective_date ? new Date(law.effective_date).toLocaleDateString('th-TH') : '-' },
+    { label: 'วันที่บังคับใช้', value: formatDisplayDate(law.effective_date) },
     { label: 'ความถี่ตรวจติดตาม', value: law.review_frequency || 'ไม่ระบุ' },
-    { label: 'อัพเดทล่าสุด', value: law.last_updated ? new Date(law.last_updated).toLocaleDateString('th-TH') : '-' },
+    { label: 'อัพเดทล่าสุด', value: formatDisplayDate(law.last_updated) },
   ]
 
   const departments = law.law_department_mapping || []
+  const lawComplianceStatus = normalizeComplianceStatus(law.compliance_status)
 
   return (
     <Layout>
@@ -200,7 +180,7 @@ export default function LawDetail() {
                   <Edit3 className="w-5 h-5" />
                   แก้ไข
                 </button>
-                {law.compliance_status !== 'compliant' && (
+                {!isCompliantStatus(law.compliance_status) && (
                   <button
                     onClick={handleApprove}
                     className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-medium transition"
@@ -218,17 +198,17 @@ export default function LawDetail() {
         <div className="flex items-center gap-3 pt-4 border-t">
           {isEditing ? (
             <select
-              value={editData.compliance_status || ''}
+              value={normalizeComplianceStatus(editData.compliance_status)}
               onChange={(e) => setEditData({ ...editData, compliance_status: e.target.value })}
               className="px-3 py-2 border border-gray-300 rounded"
             >
-              <option value="compliant">✓ สอดคล้อง</option>
-              <option value="non-compliant">✗ ไม่สอดคล้อง</option>
-              <option value="pending">⏳ รอการตรวจสอบ</option>
+              <option value="compliant">สอดคล้อง</option>
+              <option value="non_compliant">ไม่สอดคล้อง</option>
+              <option value="pending">รอการตรวจสอบ</option>
             </select>
           ) : (
             <>
-              {law.compliance_status === 'compliant' ? (
+              {lawComplianceStatus === 'compliant' ? (
                 <div className="flex items-center gap-2 text-green-600">
                   <CheckCircle2 className="w-6 h-6" />
                   <div>
@@ -240,10 +220,15 @@ export default function LawDetail() {
                     )}
                   </div>
                 </div>
-              ) : (
+              ) : lawComplianceStatus === 'non_compliant' ? (
                 <div className="flex items-center gap-2 text-red-600">
                   <AlertCircle className="w-6 h-6" />
                   <p className="font-semibold">ไม่สอดคล้อง - ต้องดำเนินการ</p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-amber-600">
+                  <AlertCircle className="w-6 h-6" />
+                  <p className="font-semibold">รอการตรวจสอบ</p>
                 </div>
               )}
             </>
@@ -334,7 +319,7 @@ export default function LawDetail() {
                           )}
                           {task.due_date && (
                             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
-                              ครบกำหนด: {new Date(task.due_date).toLocaleDateString('th-TH')}
+                              ครบกำหนด: {formatDisplayDate(task.due_date)}
                             </span>
                           )}
                         </div>
@@ -421,13 +406,13 @@ export default function LawDetail() {
               <div>
                 <p className="text-gray-600">วันที่สร้าง</p>
                 <p className="font-medium text-slate-900">
-                  {law.created_at ? new Date(law.created_at).toLocaleDateString('th-TH') : '-'}
+                  {formatDisplayDate(law.created_at)}
                 </p>
               </div>
               <div>
                 <p className="text-gray-600">อัพเดทล่าสุด</p>
                 <p className="font-medium text-slate-900">
-                  {law.last_updated ? new Date(law.last_updated).toLocaleDateString('th-TH') : '-'}
+                  {formatDisplayDate(law.last_updated)}
                 </p>
               </div>
             </div>

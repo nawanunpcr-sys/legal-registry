@@ -11,6 +11,7 @@ export default function LegalRegistry() {
   const [categories, setCategories] = useState([])
   const [laws, setLaws] = useState([])
   const [expandedCategory, setExpandedCategory] = useState(null)
+  const [expandedYear, setExpandedYear] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -47,6 +48,20 @@ export default function LegalRegistry() {
       ? [{ id: 'uncategorized', name: 'ไม่ระบุหมวดหมู่', color: '#64748B' }]
       : []),
   ]
+
+  const extractYear = (law) => {
+    if (law.effective_date) {
+      const d = new Date(law.effective_date)
+      if (!isNaN(d.getTime())) return (d.getFullYear() + 543).toString()
+    }
+    if (law.announced_date) {
+      const d = new Date(law.announced_date)
+      if (!isNaN(d.getTime())) return (d.getFullYear() + 543).toString()
+    }
+    const match = law.title?.match(/พ\.ศ\.\s*(\d{4})/)
+    if (match) return match[1]
+    return 'ไม่ระบุปี'
+  }
 
   const getLawsByCategory = (categoryId) => {
     if (categoryId === 'uncategorized') {
@@ -257,7 +272,7 @@ export default function LegalRegistry() {
                     </div>
                   </button>
 
-                  {/* Laws List */}
+                  {/* Years List */}
                   {isExpanded && (
                     <div className="bg-slate-50 border-t">
                       {categoryLaws.length === 0 ? (
@@ -265,10 +280,69 @@ export default function LegalRegistry() {
                           ไม่มีกฎหมายในหมวดนี้
                         </div>
                       ) : (
-                        <div className="divide-y">
-                          {categoryLaws.map((law) => (
-                            <LawListItem key={law.id} law={law} />
-                          ))}
+                        <div className="divide-y border-t border-slate-200">
+                          {(() => {
+                            const byYear = categoryLaws.reduce((acc, law) => {
+                              const year = extractYear(law)
+                              if (!acc[year]) acc[year] = []
+                              acc[year].push(law)
+                              return acc
+                            }, {})
+                            
+                            const sortedYears = Object.keys(byYear).sort((a, b) => {
+                              if (a === 'ไม่ระบุปี') return 1
+                              if (b === 'ไม่ระบุปี') return -1
+                              return parseInt(b) - parseInt(a)
+                            })
+
+                            return sortedYears.map(year => {
+                              const yearLaws = byYear[year]
+                              const yearStats = complianceStats(yearLaws)
+                              const isYearExpanded = expandedYear === `${category.id}-${year}`
+
+                              return (
+                                <div key={year} className="bg-white">
+                                  <button
+                                    onClick={() => setExpandedYear(isYearExpanded ? null : `${category.id}-${year}`)}
+                                    className="w-full px-8 py-3 hover:bg-slate-50 transition flex items-center justify-between border-b border-slate-100"
+                                  >
+                                    <div className="flex items-center gap-3 text-left">
+                                      {isYearExpanded ? (
+                                        <ChevronDown className="w-4 h-4 text-blue-500" />
+                                      ) : (
+                                        <ChevronRight className="w-4 h-4 text-gray-400" />
+                                      )}
+                                      <div>
+                                        <h4 className="font-semibold text-slate-800">ปี {year}</h4>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                      <div className="text-right text-xs text-slate-500">
+                                        รวม {yearStats.total} ฉบับ
+                                      </div>
+                                      <div className="text-right flex items-center gap-2">
+                                        <div className="w-24 bg-slate-200 rounded-full h-2 overflow-hidden">
+                                          <div 
+                                            className="bg-emerald-500 h-2 rounded-full" 
+                                            style={{ width: `${yearStats.percentage}%` }}
+                                          />
+                                        </div>
+                                        <span className="text-xs font-bold text-slate-700 w-12">{yearStats.percentage}%</span>
+                                      </div>
+                                    </div>
+                                  </button>
+                                  
+                                  {isYearExpanded && (
+                                    <div className="bg-slate-50/50">
+                                      {yearLaws.map((law) => (
+                                        <LawListItem key={law.id} law={law} />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })
+                          })()}
                         </div>
                       )}
                     </div>

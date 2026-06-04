@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import {
   LayoutDashboard, BookOpen, Brain, ClipboardList,
   Shield, Settings, ChevronRight,
-  Building2, ExternalLink, Sparkles, LogOut, Book, Bot,
+  ExternalLink, Sparkles, LogOut, Book, Bot,
   Trash2, FileText, MessageSquare
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -13,8 +13,7 @@ const menu = [
   {
     group: 'ภาพรวม',
     items: [
-      { href: '/', label: 'Dashboard องค์กร', icon: LayoutDashboard },
-      { href: '/dashboard-dept', label: 'Dashboard แผนก', icon: Building2 },
+      { href: '/', label: 'Legal Dashboard', icon: LayoutDashboard },
       { href: '/new-laws', label: 'กฎหมายที่เพิ่งเผยแพร่', icon: Sparkles },
     ]
   },

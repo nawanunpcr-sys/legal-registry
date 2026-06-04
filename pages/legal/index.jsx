@@ -52,11 +52,17 @@ export default function LegalRegistry() {
   const extractYear = (law) => {
     if (law.effective_date) {
       const d = new Date(law.effective_date)
-      if (!isNaN(d.getTime())) return (d.getFullYear() + 543).toString()
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear()
+        return (year >= 2400 ? year : year + 543).toString()
+      }
     }
     if (law.announced_date) {
       const d = new Date(law.announced_date)
-      if (!isNaN(d.getTime())) return (d.getFullYear() + 543).toString()
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear()
+        return (year >= 2400 ? year : year + 543).toString()
+      }
     }
     const match = law.title?.match(/พ\.ศ\.\s*(\d{4})/)
     if (match) return match[1]
@@ -65,14 +71,14 @@ export default function LegalRegistry() {
 
   const getLawsByCategory = (categoryId) => {
     if (categoryId === 'uncategorized') {
-      return filteredLaws.filter(law => !law.category_id)
+      return activeFilteredLaws.filter(law => !law.category_id)
     }
 
-    return filteredLaws.filter(law => law.category_id === categoryId)
+    return activeFilteredLaws.filter(law => law.category_id === categoryId)
   }
 
   const complianceStats = (laws) => {
-    if (!laws.length) return { compliant: 0, nonCompliant: 0, total: 0 }
+    if (!laws.length) return { compliant: 0, nonCompliant: 0, total: 0, percentage: 0 }
     const activeLaws = laws.filter(l => !l.is_cancelled)
     const compliant = activeLaws.filter(l => isCompliantStatus(l.compliance_status)).length
     return {
@@ -373,6 +379,11 @@ function LawListItem({ law }) {
             <p className="text-xs text-gray-600 mb-2">
               รหัส: {law.law_code || law.id}
             </p>
+            {(law.description || law.review_frequency || law.responsible_person) && (
+              <p className="mb-3 line-clamp-2 text-sm text-slate-600">
+                {law.description || `ตรวจติดตาม: ${law.review_frequency || '-'} • ผู้รับผิดชอบ: ${law.responsible_person || '-'}`}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <span
                 className={`text-xs px-2 py-1 rounded-full font-medium ${

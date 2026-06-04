@@ -1,25 +1,35 @@
+import { getSupabaseServerClient } from '../../lib/supabaseServer'
+import { mapCategory, mapLaw } from '../../lib/lawMappers'
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
   try {
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/laws?select=*&order=announced_date.desc`,
-      {
-        headers: {
-          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-          'Content-Type': 'application/json',
-        },
-      }
-    )
+    const supabase = getSupabaseServerClient()
+    const [lawsResult, categoriesResult] = await Promise.all([
+      supabase
+        .from('laws')
+        .select('*')
+        .order('id', { ascending: true }),
+      supabase
+        .from('law_categories')
+        .select('*')
+        .order('id', { ascending: true }),
+    ])
 
-    const laws = await response.json()
-    if (!response.ok) {
-      return res.status(response.status).json({ error: laws })
+    const error = lawsResult.error || categoriesResult.error
+    if (error) {
+      console.error('Laws fetch error:', error)
+      return res.status(500).json({ error: error.message })
     }
 
-    return res.status(200).json({ data: laws || [] })
+    const categories = (categoriesResult.data || []).map(mapCategory)
+    const categoryMap = new Map(categories.map(category => [category.id, category]))
+    const data = (lawsResult.data || []).map(law => mapLaw(law, categoryMap))
+
+    return res.status(200).json({ data })
   } catch (error) {
     console.error('API error:', error)
     return res.status(500).json({ error: error.message })

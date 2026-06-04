@@ -3,7 +3,8 @@ import { useRouter } from 'next/router'
 import Layout from '../../components/Layout'
 import {
   BookOpen, ChevronLeft, FileText, Users, Calendar,
-  CheckCircle2, AlertCircle, Edit3, Save, X, BarChart3
+  CheckCircle2, AlertCircle, Edit3, Save, X, BarChart3,
+  ClipboardCheck, FolderOpen, Repeat
 } from 'lucide-react'
 import { getLawById, updateLawById } from '../../lib/supabase'
 import { isCompliantStatus, normalizeComplianceStatus } from '../../lib/statusUtils'
@@ -112,6 +113,25 @@ export default function LawDetail() {
 
   const departments = law.law_department_mapping || []
   const lawComplianceStatus = normalizeComplianceStatus(law.compliance_status)
+  const relatedDocuments = Array.isArray(law.related_documents)
+    ? law.related_documents
+    : String(law.related_documents || '')
+      .split('\n')
+      .map((doc) => doc.trim())
+      .filter(Boolean)
+  const reportingResults = complianceTasks.slice(0, 5)
+  const complianceLabel = {
+    compliant: 'สอดคล้อง',
+    non_compliant: 'ไม่สอดคล้อง',
+    partial: 'สอดคล้องบางส่วน',
+    pending: 'รอการตรวจสอบ',
+    not_evaluated: 'ยังไม่ประเมิน',
+  }[lawComplianceStatus] || 'ยังไม่ประเมิน'
+  const complianceTone = {
+    compliant: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    non_compliant: 'border-red-200 bg-red-50 text-red-700',
+    partial: 'border-amber-200 bg-amber-50 text-amber-700',
+  }[lawComplianceStatus] || 'border-slate-200 bg-slate-50 text-slate-700'
 
   return (
     <Layout>
@@ -267,7 +287,7 @@ export default function LawDetail() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
               <BarChart3 className="w-6 h-6 text-blue-600" />
-              ข้อมูลสำคัญ
+              ประเด็นสำคัญ
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {summaryPoints.map((point) => (
@@ -279,12 +299,56 @@ export default function LawDetail() {
             </div>
           </div>
 
+          {/* Compliance Assessment */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <ClipboardCheck className="w-6 h-6 text-emerald-600" />
+              ผลประเมินความสอดคล้อง
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className={`rounded-lg border p-4 ${complianceTone}`}>
+                <p className="text-sm font-medium mb-1">สถานะปัจจุบัน</p>
+                <p className="text-xl font-bold">{complianceLabel}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-600 mb-1">ผู้รับผิดชอบ</p>
+                <p className="font-semibold text-slate-900">{law.responsible_person || '-'}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-600 mb-1">การประเมินล่าสุด</p>
+                <p className="font-semibold text-slate-900">{formatDisplayDate(law.last_updated)}</p>
+              </div>
+            </div>
+            {law.assessment_result && (
+              <div className="mt-4 rounded-lg border border-slate-200 p-4 text-slate-700">
+                {law.assessment_result}
+              </div>
+            )}
+          </div>
+
+          {/* Audit Frequency */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <Repeat className="w-6 h-6 text-blue-600" />
+              ความถี่การตรวจติดตาม
+            </h2>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="font-semibold text-slate-900">{law.review_frequency || 'ไม่ระบุความถี่'}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                ใช้กำหนดรอบตรวจติดตามและจัดทำรายงานใน Legal Dashboard
+              </p>
+            </div>
+          </div>
+
           {/* Related Documents */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-slate-900 mb-4">เอกสารที่เกี่ยวข้อง</h2>
-            {law.related_documents ? (
+            <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <FolderOpen className="w-6 h-6 text-blue-600" />
+              เอกสารที่เกี่ยวข้อง
+            </h2>
+            {relatedDocuments.length > 0 ? (
               <ul className="space-y-2">
-                {law.related_documents.split('\n').map((doc, idx) => (
+                {relatedDocuments.map((doc, idx) => (
                   <li key={idx} className="text-gray-700 flex items-start gap-2">
                     <span className="text-blue-600">•</span>
                     {doc}
@@ -293,6 +357,34 @@ export default function LawDetail() {
               </ul>
             ) : (
               <p className="text-gray-500">ไม่มีเอกสารที่เกี่ยวข้อง</p>
+            )}
+          </div>
+
+          {/* Reporting Results */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-4">ผลการรายงาน</h2>
+            {reportingResults.length > 0 ? (
+              <div className="space-y-3">
+                {reportingResults.map((item) => (
+                  <div key={item.id} className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="font-medium text-slate-900">
+                          {item.title || item.finding || item.description || 'ผลการตรวจติดตาม'}
+                        </p>
+                        {(item.detail || item.corrective_action) && (
+                          <p className="mt-1 text-sm text-slate-600">{item.detail || item.corrective_action}</p>
+                        )}
+                      </div>
+                      <span className="text-sm text-slate-500">
+                        {formatDisplayDate(item.created_at || item.updated_at)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500">ยังไม่มีผลการรายงาน</p>
             )}
           </div>
 

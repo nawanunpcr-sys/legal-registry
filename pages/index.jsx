@@ -1,341 +1,398 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Layout from '../components/Layout'
-import { getDashboardData } from '../lib/supabase'
+import { getDashboardData, getRepealedLaws, supabase } from '../lib/supabase'
 import { normalizeComplianceStatus } from '../lib/statusUtils'
 import {
-  BookOpen, CheckCircle2, Clock, AlertTriangle,
-  TrendingUp, Users, FileCheck, Activity,
-  ArrowUp, Building2, Shield, Target, ClipboardList, Brain
+  AlertTriangle,
+  Bell,
+  BookOpen,
+  CheckCircle2,
+  ClipboardCheck,
+  ExternalLink,
+  FileWarning,
+  MessageSquare,
+  Send,
+  ShieldCheck,
+  XCircle,
 } from 'lucide-react'
 import {
-  PieChart, Pie, Cell, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts'
 import Link from 'next/link'
+import toast from 'react-hot-toast'
 
+const MONTHS = [
+  { value: '01', label: 'มกราคม' },
+  { value: '02', label: 'กุมภาพันธ์' },
+  { value: '03', label: 'มีนาคม' },
+  { value: '04', label: 'เมษายน' },
+  { value: '05', label: 'พฤษภาคม' },
+  { value: '06', label: 'มิถุนายน' },
+  { value: '07', label: 'กรกฎาคม' },
+  { value: '08', label: 'สิงหาคม' },
+  { value: '09', label: 'กันยายน' },
+  { value: '10', label: 'ตุลาคม' },
+  { value: '11', label: 'พฤศจิกายน' },
+  { value: '12', label: 'ธันวาคม' },
+]
 
-const COLORS = ['#10B981', '#F59E0B', '#EF4444', '#6B7280', '#3B82F6']
+const chartColors = {
+  compliant: '#059669',
+  partial: '#d97706',
+  non_compliant: '#dc2626',
+  not_evaluated: '#94a3b8',
+}
+
+const currentDate = new Date()
+const defaultYear = String(currentDate.getFullYear())
+const defaultMonth = String(currentDate.getMonth() + 1).padStart(2, '0')
+
+function formatThaiYear(year) {
+  const numericYear = Number(year)
+  if (!Number.isFinite(numericYear)) return year
+  return numericYear >= 2400 ? numericYear : numericYear + 543
+}
 
 export default function Dashboard() {
-  const [data, setData] = useState(null)
+  const [data, setData] = useState({ laws: [], compliance: [] })
+  const [repealedLaws, setRepealedLaws] = useState([])
+  const [communications, setCommunications] = useState([])
+  const [selectedYear, setSelectedYear] = useState(defaultYear)
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getDashboardData().then(({ laws, tasks, compliance, departments }) => {
-      setData({ laws, tasks, compliance, departments })
-      setLoading(false)
-    })
+    async function fetchData() {
+      setLoading(true)
+      try {
+        const [dashboardData, repealedResult, communicationsResult] = await Promise.all([
+          getDashboardData(),
+          getRepealedLaws(),
+          supabase.from('communication_matrix').select('*').order('seq_no'),
+        ])
+
+        setData(dashboardData)
+        setRepealedLaws(repealedResult.data || [])
+        setCommunications(communicationsResult.data || [])
+      } catch (error) {
+        toast.error('โหลดข้อมูลหน้าแรกไม่สำเร็จ')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
   }, [])
+
+  const years = useMemo(() => {
+    const sourceYears = data.laws
+      .map((law) => law.effective_date || law.announced_date || law.created_at)
+      .map((date) => {
+        const parsed = new Date(date)
+        return Number.isNaN(parsed.getTime()) ? null : String(parsed.getFullYear())
+      })
+      .filter(Boolean)
+    return Array.from(new Set([defaultYear, ...sourceYears])).sort((a, b) => Number(b) - Number(a))
+  }, [data.laws])
+
+  const activeLaws = data.laws.filter((law) => !law.is_cancelled && law.status !== 'cancelled')
+  const reportingRecords = data.compliance.filter((record) => {
+    const dateValue = record.created_at || record.updated_at || record.assessment_date || record.effective_date
+    if (!dateValue) return true
+    const date = new Date(dateValue)
+    if (Number.isNaN(date.getTime())) return true
+    return date.getFullYear() === Number(selectedYear) && String(date.getMonth() + 1).padStart(2, '0') === selectedMonth
+  })
+
+  const complianceSource = reportingRecords.length > 0
+    ? reportingRecords
+    : activeLaws.map((law) => ({ id: law.id, compliance_status: law.compliance_status }))
+
+  const complianceCounts = complianceSource.reduce(
+    (acc, item) => {
+      const status = normalizeComplianceStatus(item.compliance_status)
+      if (status === 'compliant') acc.compliant += 1
+      else if (status === 'non_compliant') acc.nonCompliant += 1
+      else if (status === 'partial') acc.partial += 1
+      else acc.notEvaluated += 1
+      return acc
+    },
+    { compliant: 0, nonCompliant: 0, partial: 0, notEvaluated: 0 }
+  )
+
+  const lawOverview = Object.values(
+    activeLaws.reduce((acc, law) => {
+      const categoryName = law.law_categories?.name || 'ไม่ระบุหมวดหมู่'
+      if (!acc[categoryName]) {
+        acc[categoryName] = {
+          name: categoryName,
+          total: 0,
+          compliant: 0,
+          nonCompliant: 0,
+        }
+      }
+      acc[categoryName].total += 1
+      if (normalizeComplianceStatus(law.compliance_status) === 'compliant') acc[categoryName].compliant += 1
+      if (normalizeComplianceStatus(law.compliance_status) === 'non_compliant') acc[categoryName].nonCompliant += 1
+      return acc
+    }, {})
+  ).sort((a, b) => b.total - a.total)
+
+  const complianceChartData = [
+    { name: 'สอดคล้อง', value: complianceCounts.compliant, color: chartColors.compliant },
+    { name: 'สอดคล้องบางส่วน', value: complianceCounts.partial, color: chartColors.partial },
+    { name: 'ไม่สอดคล้อง', value: complianceCounts.nonCompliant, color: chartColors.non_compliant },
+    { name: 'ยังไม่ประเมิน', value: complianceCounts.notEvaluated, color: chartColors.not_evaluated },
+  ].filter((item) => item.value > 0)
+
+  const overviewChartData = lawOverview.slice(0, 6).map((item) => ({
+    name: item.name.length > 18 ? `${item.name.slice(0, 18)}...` : item.name,
+    total: item.total,
+    nonCompliant: item.nonCompliant,
+  }))
+
+  const notificationItems = communications.slice(0, 5).map((item) => ({
+    id: item.id,
+    title: item.info_type || 'รายการสื่อสาร',
+    recipient: item.recipient || '-',
+    frequency: item.frequency || 'ไม่ระบุความถี่',
+    method: item.method || 'ไม่ระบุวิธี',
+  }))
+
+  const sendNotification = (item) => {
+    toast.success(`เตรียมส่งแจ้งเตือนถึง ${item.recipient}`)
+  }
 
   if (loading) return (
     <Layout>
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent 
-                          rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-500">กำลังโหลดข้อมูล...</p>
+          <div className="w-12 h-12 border-4 border-slate-800 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-slate-500">กำลังโหลดข้อมูล...</p>
         </div>
       </div>
     </Layout>
   )
 
-  const totalLaws = data.laws.length
-  const activeLaws = data.laws.filter(l => l.status === 'active').length
-  const criticalLaws = data.laws.filter(l => l.priority === 'critical').length
-  const totalTasks = data.tasks.length
-  const completedTasks = data.tasks.filter(t => t.status === 'completed').length
-  const pendingApproval = data.tasks.filter(t => t.status === 'pending_approval').length
-  const normalizedCompliance = data.compliance.map(item => ({
-    ...item,
-    normalizedStatus: normalizeComplianceStatus(item.compliance_status),
-  }))
-  const complianceRate = data.compliance.length > 0
-    ? Math.round(normalizedCompliance.filter(c =>
-        c.normalizedStatus === 'compliant').length / data.compliance.length * 100)
-    : 0
-
-  const statsCards = [
-    {
-      label: 'กฎหมายทั้งหมด',
-      value: totalLaws,
-      sub: `${activeLaws} กฎหมายบังคับใช้`,
-      icon: BookOpen,
-      color: 'from-blue-500 to-blue-600',
-      bg: 'bg-blue-50',
-      text: 'text-blue-600'
-    },
-    {
-      label: 'ประเมินสอดคล้องแล้ว',
-      value: `${complianceRate}%`,
-      sub: `${normalizedCompliance.filter(c => c.normalizedStatus === 'compliant').length} / ${data.compliance.length} รายการ`,
-      icon: CheckCircle2,
-      color: 'from-emerald-500 to-emerald-600',
-      bg: 'bg-emerald-50',
-      text: 'text-emerald-600'
-    },
-    {
-      label: 'งานรอ Approve',
-      value: pendingApproval,
-      sub: `รวมงานทั้งหมด ${totalTasks} รายการ`,
-      icon: Clock,
-      color: 'from-amber-500 to-amber-600',
-      bg: 'bg-amber-50',
-      text: 'text-amber-600'
-    },
-    {
-      label: 'กฎหมายวิกฤต',
-      value: criticalLaws,
-      sub: 'ต้องดูแลเป็นพิเศษ',
-      icon: AlertTriangle,
-      color: 'from-red-500 to-red-600',
-      bg: 'bg-red-50',
-      text: 'text-red-600'
-    },
-    {
-      label: 'แผนกในระบบ',
-      value: data.departments.length,
-      sub: 'แผนกที่รับผิดชอบ',
-      icon: Building2,
-      color: 'from-purple-500 to-purple-600',
-      bg: 'bg-purple-50',
-      text: 'text-purple-600'
-    },
-    {
-      label: 'งานเสร็จแล้ว',
-      value: completedTasks,
-      sub: `${totalTasks > 0 ? Math.round(completedTasks / totalTasks * 100) : 0}% ของงานทั้งหมด`,
-      icon: FileCheck,
-      color: 'from-teal-500 to-teal-600',
-      bg: 'bg-teal-50',
-      text: 'text-teal-600'
-    },
-  ]
-
-  const taskStatusData = [
-    { name: 'เสร็จแล้ว', value: data.tasks.filter(t => t.status === 'completed').length, color: '#10B981' },
-    { name: 'กำลังดำเนินการ', value: data.tasks.filter(t => t.status === 'in_progress').length, color: '#3B82F6' },
-    { name: 'รอ Approve', value: data.tasks.filter(t => t.status === 'pending_approval').length, color: '#F59E0B' },
-    { name: 'ยังไม่เริ่ม', value: data.tasks.filter(t => t.status === 'pending').length, color: '#6B7280' },
-    { name: 'เกินกำหนด', value: data.tasks.filter(t => t.status === 'overdue').length, color: '#EF4444' },
-  ].filter(d => d.value > 0)
-
-  const complianceData = [
-    { name: 'สอดคล้อง', value: normalizedCompliance.filter(c => c.normalizedStatus === 'compliant').length, color: '#10B981' },
-    { name: 'บางส่วน', value: normalizedCompliance.filter(c => c.normalizedStatus === 'partial').length, color: '#F59E0B' },
-    { name: 'ไม่สอดคล้อง', value: normalizedCompliance.filter(c => c.normalizedStatus === 'non_compliant').length, color: '#EF4444' },
-    { name: 'ยังไม่ประเมิน', value: normalizedCompliance.filter(c => c.normalizedStatus === 'not_evaluated').length, color: '#CBD5E1' },
-  ].filter(d => d.value > 0)
-
-  const deptBarData = data.departments.map(dept => {
-    const deptTasks = data.tasks.filter(t => t.department_id === dept.id)
-    const deptCompliance = normalizedCompliance.filter(c => c.department_id === dept.id)
-    const score = deptCompliance.length > 0
-      ? Math.round(deptCompliance.filter(c => c.normalizedStatus === 'compliant').length / deptCompliance.length * 100)
-      : 0
-    return {
-      name: dept.code || dept.name.substring(0, 6),
-      คะแนน: score,
-      งานทั้งหมด: deptTasks.length,
-      งานเสร็จ: deptTasks.filter(t => t.status === 'completed').length,
-    }
-  })
-
   return (
     <Layout>
-      {/* Header */}
-      <div className="mb-8 rounded-[32px] border border-slate-200/70 bg-white/90 p-8 shadow-xl">
-        <div className="flex flex-col lg:flex-row gap-6 lg:items-center lg:justify-between">
-          <div>
-            <div className="hero-pill mb-4">ภาพรวมระบบ</div>
-            <h1 className="page-title">Legal Management System</h1>
-            <p className="section-subtitle max-w-2xl">
-              แพลตฟอร์มบริหารจัดการกฎหมายและความสอดคล้องเชิงองค์กร
-            </p>
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="hero-pill mb-3">
+            <ShieldCheck className="h-4 w-4" />
+            Legal Dashboard
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/legal/add" className="btn-primary">
-              <BookOpen className="w-4 h-4" />
-              เพิ่มกฎหมาย
-            </Link>
-            <Link href="/ai-analysis" className="btn-success">
-              <Activity className="w-4 h-4" />
-              วิเคราะห์ด้วย AI
-            </Link>
-          </div>
+          <h1 className="page-title">ภาพรวมทะเบียนกฎหมาย</h1>
+          <p className="section-subtitle">
+            ติดตามกฎหมายที่เกี่ยวข้อง สถานะการปฏิบัติตาม และรายการสื่อสารที่ควรแจ้งเตือน
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <label className="text-sm font-medium text-slate-700">
+            ปีรายงาน
+            <select
+              value={selectedYear}
+              onChange={(event) => setSelectedYear(event.target.value)}
+              className="select-field mt-1"
+            >
+              {years.map((year) => (
+                <option key={year} value={year}>{formatThaiYear(year)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            เดือนรายงาน
+            <select
+              value={selectedMonth}
+              onChange={(event) => setSelectedMonth(event.target.value)}
+              className="select-field mt-1"
+            >
+              {MONTHS.map((month) => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
-        {statsCards.map((card) => {
-          const Icon = card.icon
-          return (
-            <div key={card.label} className="card hover:-translate-y-1 hover:shadow-2xl transition-transform duration-300">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm text-slate-500 mb-2">{card.label}</p>
-                  <p className="text-3xl font-bold text-slate-900">{card.value}</p>
-                  <p className={`text-sm mt-2 ${card.text}`}>{card.sub}</p>
-                </div>
-                <div className={`w-14 h-14 rounded-3xl bg-gradient-to-br ${card.color} flex items-center justify-center shadow-lg`}>
-                  <Icon className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </div>
-          )
-        })}
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+        <DashboardCard icon={BookOpen} label="กฎหมายที่เกี่ยวข้อง" value={activeLaws.length} tone="slate" />
+        <DashboardCard icon={CheckCircle2} label="สอดคล้อง" value={complianceCounts.compliant} tone="emerald" />
+        <DashboardCard icon={XCircle} label="ไม่สอดคล้อง" value={complianceCounts.nonCompliant} tone="red" />
+        <DashboardCard icon={FileWarning} label="กฎหมายที่ยกเลิก" value={repealedLaws.length} tone="amber" />
       </div>
 
-      {/* Progress Bar ภาพรวม */}
-      <div className="card mb-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-blue-500/10 p-3 text-blue-600">
-              <Target className="w-5 h-5" />
-            </div>
+      <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <section className="card xl:col-span-2">
+          <div className="mb-5 flex items-center justify-between gap-3">
             <div>
-              <h2 className="section-title">ความคืบหน้าการประเมินความสอดคล้อง</h2>
-              <p className="text-sm text-slate-500">ติดตามระดับความสอดคล้องในภาพรวมขององค์กร</p>
+              <h2 className="section-title">ภาพรวมกฎหมายตามหมวดหมู่</h2>
+              <p className="mt-1 text-sm text-slate-500">แสดงจำนวนกฎหมายและประเด็นไม่สอดคล้องในแต่ละหมวด</p>
             </div>
+            <Link href="/legal" className="btn-secondary">
+              เปิดทะเบียน
+              <ExternalLink className="h-4 w-4" />
+            </Link>
           </div>
-          <span className="text-3xl font-bold text-slate-900">{complianceRate}%</span>
-        </div>
-        <div className="w-full bg-slate-100 rounded-full h-6 overflow-hidden">
-          <div
-            className="h-6 rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-1000 flex items-center justify-end pr-3"
-            style={{ width: `${complianceRate}%` }}
-          >
-            <span className="text-white text-xs font-bold">{complianceRate}%</span>
-          </div>
-        </div>
-        <div className="flex justify-between mt-2 text-xs text-slate-500">
-          <span>0%</span>
-          <span>เป้าหมาย 100%</span>
-        </div>
+          {overviewChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={overviewChartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: 'Sarabun' }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                <Tooltip contentStyle={{ fontFamily: 'Sarabun', fontSize: 12 }} />
+                <Bar dataKey="total" name="กฎหมายทั้งหมด" fill="#475569" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="nonCompliant" name="ไม่สอดคล้อง" fill="#dc2626" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState icon={BookOpen} text="ยังไม่มีข้อมูลกฎหมาย" />
+          )}
+        </section>
+
+        <section className="card">
+          <h2 className="section-title mb-1">Legal Dashboard</h2>
+          <p className="mb-4 text-sm text-slate-500">
+            ผลประเมินประจำเดือน {MONTHS.find((month) => month.value === selectedMonth)?.label} {formatThaiYear(selectedYear)}
+          </p>
+          {complianceChartData.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={210}>
+                <PieChart>
+                  <Pie data={complianceChartData} cx="50%" cy="50%" innerRadius={52} outerRadius={82} dataKey="value" paddingAngle={3}>
+                    {complianceChartData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value, name) => [`${value} รายการ`, name]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="mt-4 space-y-3">
+                {complianceChartData.map((item) => (
+                  <div key={item.name} className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2 text-slate-600">
+                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+                      {item.name}
+                    </span>
+                    <span className="font-semibold text-slate-900">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <EmptyState icon={ClipboardCheck} text="ยังไม่มีผลประเมินในช่วงเวลานี้" />
+          )}
+        </section>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
-        {/* Pie - Task Status */}
-        <div className="card">
-          <div className="mb-4 flex items-center gap-2">
-            <ClipboardList className="w-5 h-5 text-blue-500" />
-            <h3 className="section-title">สถานะงานทั้งหมด</h3>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <section className="card">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="section-title">กฎหมายที่ยกเลิก</h2>
+              <p className="mt-1 text-sm text-slate-500">รายการล่าสุดที่ถูกยกเลิกหรือหมดผลบังคับใช้</p>
+            </div>
+            <Link href="/legal/repealed" className="btn-secondary">
+              ดูทั้งหมด
+              <ExternalLink className="h-4 w-4" />
+            </Link>
           </div>
-          {taskStatusData.length > 0 ? (
-            <>
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart>
-                  <Pie data={taskStatusData} cx="50%" cy="50%" innerRadius={60} outerRadius={88} dataKey="value" paddingAngle={4}>
-                    {taskStatusData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v, n) => [`${v} รายการ`, n]} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-3 mt-4">
-                {taskStatusData.map((d, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: d.color }} />
-                      <span className="text-slate-700">{d.name}</span>
+          {repealedLaws.length > 0 ? (
+            <div className="divide-y divide-slate-100">
+              {repealedLaws.slice(0, 5).map((law) => (
+                <Link key={law.id} href={`/legal/${law.id}`} className="block py-3 hover:bg-slate-50">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 flex-none text-red-500" />
+                    <div>
+                      <p className="font-medium text-slate-900">{law.title}</p>
+                      <p className="mt-1 text-sm text-slate-500">{law.law_code || law.id}</p>
                     </div>
-                    <span className="font-semibold text-slate-900">{d.value}</span>
                   </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="text-center py-12 text-slate-400">ยังไม่มีข้อมูล</div>
-          )}
-        </div>
-
-        {/* Pie - Compliance */}
-        <div className="card">
-          <div className="mb-4 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-emerald-500" />
-            <h3 className="section-title">ผลการประเมินสอดคล้อง</h3>
-          </div>
-          {complianceData.length > 0 ? (
-            <>
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart>
-                  <Pie data={complianceData} cx="50%" cy="50%" innerRadius={60} outerRadius={88} dataKey="value" paddingAngle={4}>
-                    {complianceData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v, n) => [`${v} รายการ`, n]} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-3 mt-4">
-                {complianceData.map((d, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: d.color }} />
-                      <span className="text-slate-700">{d.name}</span>
-                    </div>
-                    <span className="font-semibold text-slate-900">{d.value}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="text-center py-12 text-slate-400">ยังไม่มีข้อมูล</div>
-          )}
-        </div>
-
-        {/* Quick Actions */}
-        <div className="card">
-          <div className="mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-purple-500" />
-            <h3 className="section-title">การดำเนินการด่วน</h3>
-          </div>
-          <div className="grid gap-3">
-            {[
-              { label: 'เพิ่มกฎหมายใหม่', href: '/legal/add', color: 'bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-800', icon: BookOpen },
-              { label: 'วิเคราะห์ด้วย AI', href: '/ai-analysis', color: 'bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-800', icon: Brain },
-              { label: 'อนุมัติและส่งงาน', href: '/tasks', color: 'bg-amber-50 hover:bg-amber-100 text-amber-700 hover:text-amber-800', icon: ClipboardList },
-              { label: 'ประเมินความสอดคล้อง', href: '/compliance', color: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800', icon: Shield },
-              { label: 'ดู Dashboard แผนก', href: '/dashboard-dept', color: 'bg-pink-50 hover:bg-pink-100 text-pink-700 hover:text-pink-800', icon: Building2 },
-            ].map((action) => {
-              const Icon = action.icon
-              return (
-                <Link key={action.href} href={action.href}
-                  className={`flex items-center gap-3 rounded-3xl ${action.color} p-4 transition-all duration-200`}>
-                  <Icon className="w-5 h-5" />
-                  <span className="font-semibold text-sm">{action.label}</span>
-                  <ArrowUp className="w-4 h-4 ml-auto opacity-60 rotate-45" />
                 </Link>
-              )
-            })}
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={AlertTriangle} text="ไม่มีกฎหมายที่ยกเลิก" />
+          )}
+        </section>
+
+        <section className="card">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="section-title">การแจ้งเตือนการสื่อสาร</h2>
+              <p className="mt-1 text-sm text-slate-500">ดึงจากตารางการสื่อสารเพื่อเตรียมส่งแจ้งเตือน</p>
+            </div>
+            <Bell className="h-5 w-5 text-slate-500" />
           </div>
+          {notificationItems.length > 0 ? (
+            <div className="space-y-3">
+              {notificationItems.map((item) => (
+                <div key={item.id} className="rounded-lg border border-slate-200 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-900">{item.title}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        ถึง {item.recipient} • {item.frequency} • {item.method}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => sendNotification(item)}
+                      className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+                      title="ส่งแจ้งเตือน"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={MessageSquare} text="ยังไม่มีรายการสื่อสาร" />
+          )}
+        </section>
+      </div>
+    </Layout>
+  )
+}
+
+function DashboardCard({ icon: Icon, label, value, tone }) {
+  const tones = {
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    red: 'border-red-200 bg-red-50 text-red-700',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700',
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
+        </div>
+        <div className={`rounded-lg border p-3 ${tones[tone]}`}>
+          <Icon className="h-5 w-5" />
         </div>
       </div>
+    </div>
+  )
+}
 
-      {/* Bar Chart แผนก */}
-      {deptBarData.length > 0 && (
-        <div className="card mb-8">
-          <div className="mb-6 flex items-center gap-2">
-            <Users className="w-5 h-5 text-blue-500" />
-            <h3 className="section-title">คะแนนความสอดคล้องรายแผนก (%)</h3>
-          </div>
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={deptBarData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 12, fontFamily: 'Sarabun' }} />
-              <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
-              <Tooltip
-                contentStyle={{ fontFamily: 'Sarabun', fontSize: 12 }}
-                formatter={(v) => [`${v}%`, 'คะแนน']}
-              />
-              <Bar dataKey="คะแนน" fill="#3B82F6" radius={[16, 16, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </Layout>
+function EmptyState({ icon: Icon, text }) {
+  return (
+    <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-slate-500">
+      <Icon className="mb-3 h-8 w-8 text-slate-300" />
+      <p>{text}</p>
+    </div>
   )
 }

@@ -1,29 +1,21 @@
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import {
-  LayoutDashboard, BookOpen, Brain, ClipboardList,
-  Shield, Settings, ChevronRight,
-  ExternalLink, Sparkles, LogOut, Book, Bot,
-  Trash2, FileText, MessageSquare
+  BookOpen, Brain, ClipboardList, Shield, Settings,
+  Sparkles, LogOut, Trash2, FileText, MessageSquare,
+  ChevronRight, ExternalLink, Book, Bot,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../hooks/useAuth'
 
 const menu = [
   {
-    group: 'ภาพรวม',
-    items: [
-      { href: '/', label: 'Legal Dashboard', icon: LayoutDashboard },
-      { href: '/new-laws', label: 'กฎหมายที่เพิ่งเผยแพร่', icon: Sparkles },
-    ]
-  },
-  {
     group: 'กฎหมาย',
     items: [
-      { href: '/legal', label: 'รายการกฎหมาย', icon: BookOpen },
+      { href: '/legal', label: 'ทะเบียนกฎหมาย', icon: BookOpen },
+      { href: '/new-laws', label: 'กฎหมายใหม่ (ราชกิจจาฯ)', icon: Sparkles },
       { href: '/legal/repealed', label: 'กฎหมายที่ยกเลิก', icon: Trash2 },
       { href: '/legal/management-review', label: 'Management Review', icon: FileText },
-      { href: '/legal/add', label: 'เพิ่มกฎหมาย', icon: BookOpen },
     ]
   },
   {
@@ -36,27 +28,17 @@ const menu = [
     ]
   },
   {
-    group: 'งานและการส่ง',
+    group: 'การปฏิบัติตาม',
     items: [
-      { href: '/tasks', label: 'มอบหมายงาน / ส่งแผนก', icon: ClipboardList },
-    ]
-  },
-  {
-    group: 'ประเมินความสอดคล้อง',
-    items: [
+      { href: '/tasks', label: 'มอบหมายงาน', icon: ClipboardList },
       { href: '/compliance', label: 'ผลการประเมิน (จป.)', icon: Shield },
+      { href: '/communication-matrix', label: 'ตารางการสื่อสาร', icon: MessageSquare },
     ]
   },
   {
-    group: 'การสื่อสาร',
+    group: 'ระบบ',
     items: [
-      { href: '/communication-matrix', label: 'ตารางการสื่อสาร (ISD-86)', icon: MessageSquare },
-    ]
-  },
-  {
-    group: 'ตั้งค่า',
-    items: [
-      { href: '/settings', label: 'ตั้งค่าระบบ', icon: Settings },
+      { href: '/settings', label: 'ตั้งค่า', icon: Settings },
     ]
   },
 ]
@@ -66,90 +48,86 @@ export default function Sidebar() {
   const { logout } = useAuth()
 
   return (
-    <div className="w-64 bg-slate-950 text-white flex flex-col h-screen shadow-2xl fixed left-0 top-0 z-50">
+    <div className="w-60 bg-slate-900 text-white flex flex-col h-screen shadow-2xl fixed left-0 top-0 z-50">
       {/* Logo */}
-      <div className="p-5 border-b border-white/10">
+      <div className="px-5 py-4 border-b border-white/8">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 bg-slate-700 rounded-xl flex items-center justify-center">
-            <Shield className="w-6 h-6 text-white" />
+          <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+            <Shield className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="font-bold text-sm leading-tight">Legal Management System</h1>
-            <p className="text-slate-400 text-xs">Legal Management System</p>
-          </div>
-        </div>
-      </div>
-
-      {/* User */}
-      <div className="px-4 py-3 border-b border-white/10 bg-white/5">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-xs font-bold text-white">
-            จป
-          </div>
-          <div>
-            <p className="text-sm font-semibold">จป.วิชาชีพ</p>
-            <p className="text-slate-400 text-xs">ฝ่าย EHS • Admin</p>
+            <h1 className="font-bold text-sm leading-tight text-white">Legal Registry</h1>
+            <p className="text-slate-400 text-[11px] mt-0.5">ระบบทะเบียนกฎหมาย EHS</p>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-3 scrollbar-thin">
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4 scrollbar-thin">
         {menu.map((group) => (
-          <div key={group.group} className="mb-3">
-            <p className="px-4 py-1 text-blue-400/70 text-[10px] font-bold 
-                          uppercase tracking-widest">
+          <div key={group.group}>
+            <p className="px-3 py-1 text-slate-500 text-[10px] font-bold uppercase tracking-widest">
               {group.group}
             </p>
-            {group.items.map((item) => {
-              const Icon = item.icon
-              const isActive = router.pathname === item.href
-              const className = clsx(
-                'flex items-center gap-3 px-3 py-2.5 mx-2 rounded-xl text-sm transition-all mb-0.5',
-                isActive
-                  ? 'bg-white text-slate-900 font-semibold shadow-lg'
-                  : item.external
-                  ? 'text-indigo-100 hover:bg-indigo-500/15 hover:text-white'
-                  : 'text-blue-100/80 hover:bg-white/10 hover:text-white'
-              )
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const Icon = item.icon
+                // active for exact match or sub-paths (except /legal/add etc.)
+                const isActive = item.href !== '/' &&
+                  (router.pathname === item.href ||
+                    (item.href === '/legal' && router.pathname.startsWith('/legal') && !item.external))
+                    && !item.external
 
-              const content = (
-                <>
-                  <Icon className="w-4 h-4 flex-shrink-0" />
-                  <span className="flex-1 text-sm">{item.label}</span>
-                  {item.external ? <ExternalLink className="w-3 h-3 opacity-70" /> : isActive && <ChevronRight className="w-3 h-3" />}
-                </>
-              )
+                const className = clsx(
+                  'flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all',
+                  isActive
+                    ? 'bg-white text-slate-900 font-semibold shadow'
+                    : item.external
+                    ? 'text-slate-400 hover:text-white hover:bg-white/8'
+                    : 'text-slate-300 hover:text-white hover:bg-white/8'
+                )
 
-              return item.external ? (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={className}
-                >
-                  {content}
-                </a>
-              ) : (
-                <Link key={item.href} href={item.href} className={className}>
-                  {content}
-                </Link>
-              )
-            })}
+                const content = (
+                  <>
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {item.external
+                      ? <ExternalLink className="w-3 h-3 opacity-50 flex-shrink-0" />
+                      : isActive && <ChevronRight className="w-3 h-3 flex-shrink-0" />}
+                  </>
+                )
+
+                return item.external ? (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={className}
+                  >
+                    {content}
+                  </a>
+                ) : (
+                  <Link key={item.href} href={item.href} className={className}>
+                    {content}
+                  </Link>
+                )
+              })}
+            </div>
           </div>
         ))}
       </nav>
 
-      <div className="p-4 border-t border-white/10 space-y-3">
+      {/* Logout */}
+      <div className="p-3 border-t border-white/8">
         <button
           onClick={logout}
-          className="w-full flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/30 text-red-200 font-medium py-2 px-3 rounded-lg transition-colors text-sm"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-400 hover:text-red-300 hover:bg-red-500/10 transition-all text-sm"
         >
           <LogOut className="w-4 h-4" />
           ออกจากระบบ
         </button>
-        <p className="text-blue-400/60 text-xs text-center">v1.0 © 2567 Legal Management System</p>
+        <p className="text-slate-600 text-[10px] text-center mt-2">v2.0 © 2568</p>
       </div>
     </div>
   )

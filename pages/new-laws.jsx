@@ -1,9 +1,26 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
-import { Zap, ExternalLink, Calendar, BookOpen, AlertCircle, Search, Filter, Brain, ArrowRight } from 'lucide-react'
+import {
+  Zap, ExternalLink, Calendar, AlertCircle, Search,
+  Filter, Brain, ArrowRight, RefreshCw, Bell, CheckCircle2,
+  Download, BookOpen, X
+} from 'lucide-react'
 import { fetchLatestLaws } from '../lib/royalGazette'
+import { useNotifications } from '../hooks/useNotifications'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
+
+const LAW_TYPES = ['พระราชบัญญัติ', 'พระราชกฤษฎีกา', 'กฎกระทรวง', 'ประกาศกระทรวง', 'ประกาศกรม']
+const CATEGORIES = [
+  'ความปลอดภัยทั่วไป',
+  'เครื่องจักร / อุปกรณ์ / เครื่องมือ',
+  'ไฟฟ้าและอัคคีภัย',
+  'สารเคมีและวัตถุอันตราย',
+  'สิ่งแวดล้อมในการทำงาน',
+  'การทำงานในที่อับอากาศ / ที่สูง / พื้นที่อันตราย',
+  'การก่อสร้าง',
+  'สวัสดิการและแรงงาน',
+]
 
 export default function NewLaws() {
   const [laws, setLaws] = useState([])
@@ -11,230 +28,216 @@ export default function NewLaws() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedLawType, setSelectedLawType] = useState('all')
   const [selectedCategory, setSelectedCategory] = useState('all')
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const { checkGazette, checking, addNotification } = useNotifications()
 
-  useEffect(() => {
-    loadLaws()
-  }, [])
+  useEffect(() => { loadLaws() }, [])
 
   const loadLaws = async () => {
     setLoading(true)
     try {
-      const result = await fetchLatestLaws()
+      const result = await fetchLatestLaws({ limit: 20 })
       if (result.success) {
         setLaws(result.data)
+        setLastUpdated(result.lastUpdated)
       } else {
-        toast.error('ไม่สามารถโหลดข้อมูลกฎหมายจากราชกิจจานุเบกษา')
+        toast.error('ไม่สามารถโหลดข้อมูลจากราชกิจจานุเบกษา')
       }
-    } catch (err) {
+    } catch {
       toast.error('เกิดข้อผิดพลาดในการโหลดข้อมูล')
     } finally {
       setLoading(false)
     }
   }
 
-  // Get unique lists for filtering options
-  const lawTypes = ['all', 'พระราชบัญญัติ', 'พระราชกฤษฎีกา', 'กฎกระทรวง', 'ประกาศกระทรวง', 'ประกาศกรม']
-  const categories = [
-    'all',
-    'ความปลอดภัยทั่วไป',
-    'เครื่องจักร / อุปกรณ์ / เครื่องมือ',
-    'ไฟฟ้าและอัคคีภัย',
-    'สารเคมีและวัตถุอันตราย',
-    'สิ่งแวดล้อมในการทำงาน',
-    'การทำงานในที่อับอากาศ / ที่สูง / พื้นที่อันตราย',
-    'การก่อสร้าง',
-    'สวัสดิการและแรงงาน'
-  ]
+  const handleForceCheck = async () => {
+    const result = await checkGazette(true)
+    if (result.newCount > 0) {
+      toast.success(`พบกฎหมายใหม่ ${result.newCount} ฉบับ!`)
+    } else if (!result.error) {
+      toast('ไม่พบกฎหมายใหม่ในขณะนี้', { icon: '✓' })
+    }
+    await loadLaws()
+  }
 
-  // Filter logic
   const filteredLaws = laws.filter(law => {
-    const matchesSearch = 
-      law.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      law.summary.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    const matchesLawType = selectedLawType === 'all' || law.lawType === selectedLawType
-    const matchesCategory = selectedCategory === 'all' || law.safetyCategory === selectedCategory
-
-    return matchesSearch && matchesLawType && matchesCategory
+    const q = searchTerm.toLowerCase()
+    const matchSearch = !searchTerm || law.title.toLowerCase().includes(q) || law.summary.toLowerCase().includes(q)
+    const matchType = selectedLawType === 'all' || law.lawType === selectedLawType
+    const matchCat = selectedCategory === 'all' || law.safetyCategory === selectedCategory
+    return matchSearch && matchType && matchCat
   })
 
-  // Badge CSS helpers
-  const getLawTypeClass = (type) => {
-    switch (type) {
-      case 'พระราชบัญญัติ': return 'badge-lawtype-act'
-      case 'พระราชกฤษฎีกา': return 'badge-lawtype-decree'
-      case 'กฎกระทรวง': return 'badge-lawtype-ministerial'
-      case 'ประกาศกระทรวง': return 'badge-lawtype-ministry-ann'
-      case 'ประกาศกรม': return 'badge-lawtype-dept-ann'
-      default: return 'bg-slate-100 text-slate-800'
-    }
+  const lawTypeColors = {
+    'พระราชบัญญัติ': 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    'พระราชกฤษฎีกา': 'bg-purple-50 text-purple-700 border-purple-200',
+    'กฎกระทรวง': 'bg-blue-50 text-blue-700 border-blue-200',
+    'ประกาศกระทรวง': 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    'ประกาศกรม': 'bg-teal-50 text-teal-700 border-teal-200',
   }
 
-  const getCategoryClass = (cat) => {
-    switch (cat) {
-      case 'ความปลอดภัยทั่วไป': return 'badge-cat-general'
-      case 'เครื่องจักร / อุปกรณ์ / เครื่องมือ': return 'badge-cat-machinery'
-      case 'ไฟฟ้าและอัคคีภัย': return 'badge-cat-electrical'
-      case 'สารเคมีและวัตถุอันตราย': return 'badge-cat-chemical'
-      case 'สิ่งแวดล้อมในการทำงาน': return 'badge-cat-env'
-      case 'การทำงานในที่อับอากาศ / ที่สูง / พื้นที่อันตราย': return 'badge-cat-confined'
-      case 'การก่อสร้าง': return 'badge-cat-construction'
-      case 'สวัสดิการและแรงงาน': return 'badge-cat-welfare'
-      default: return 'bg-slate-100 text-slate-800'
-    }
+  const categoryColors = {
+    'ความปลอดภัยทั่วไป': 'bg-slate-50 text-slate-700 border-slate-200',
+    'เครื่องจักร / อุปกรณ์ / เครื่องมือ': 'bg-orange-50 text-orange-700 border-orange-200',
+    'ไฟฟ้าและอัคคีภัย': 'bg-yellow-50 text-yellow-700 border-yellow-200',
+    'สารเคมีและวัตถุอันตราย': 'bg-red-50 text-red-700 border-red-200',
+    'สิ่งแวดล้อมในการทำงาน': 'bg-green-50 text-green-700 border-green-200',
+    'การทำงานในที่อับอากาศ / ที่สูง / พื้นที่อันตราย': 'bg-amber-50 text-amber-700 border-amber-200',
+    'การก่อสร้าง': 'bg-stone-50 text-stone-700 border-stone-200',
+    'สวัสดิการและแรงงาน': 'bg-pink-50 text-pink-700 border-pink-200',
   }
+
+  const activeFilterCount = [searchTerm, selectedLawType !== 'all', selectedCategory !== 'all'].filter(Boolean).length
 
   return (
     <Layout>
       {/* Header */}
-      <div className="mb-8 rounded-[32px] border border-slate-200/70 bg-white/90 p-8 shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl -z-10" />
-        <div className="flex flex-col lg:flex-row gap-6 lg:items-center lg:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="p-4 bg-gradient-to-br from-orange-500 to-amber-600 rounded-[24px] text-white shadow-lg shadow-orange-500/20">
-              <Zap className="w-8 h-8" />
+      <div className="flex items-start justify-between mb-6 gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <div className="p-2.5 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl shadow">
+              <Zap className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <div className="hero-pill mb-2 border border-orange-250 bg-orange-50/50 text-orange-700">อัปเดตล่าสุดวันนี้</div>
-              <h1 className="page-title text-slate-900">ราชกิจจานุเบกษา & กฎหมายใหม่</h1>
-              <p className="section-subtitle max-w-2xl mt-1">
-                ติดตามประกาศกฎหมายด้าน OHS, ความปลอดภัย และสวัสดิการแรงงานล่าสุด พร้อมส่งวิเคราะห์เพื่อเข้าระบบได้ทันที
-              </p>
-            </div>
+            <h1 className="text-2xl font-bold text-slate-900">กฎหมายใหม่จากราชกิจจานุเบกษา</h1>
           </div>
+          <p className="text-slate-500 text-sm ml-14">
+            ติดตามประกาศกฎหมาย EHS, ความปลอดภัย และสวัสดิการแรงงานล่าสุด
+            {lastUpdated && (
+              <span className="ml-2 text-slate-400">
+                • ตรวจสอบล่าสุด {new Date(lastUpdated).toLocaleString('th-TH')}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={loadLaws}
-            className="btn-primary bg-slate-900 hover:bg-slate-800 text-white rounded-2xl px-6 py-3 shadow-lg shadow-slate-950/10 self-start lg:self-center transition-all duration-300"
+            onClick={handleForceCheck}
+            disabled={checking || loading}
+            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow disabled:opacity-60"
           >
-            รีเฟรชข้อมูล
+            <RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />
+            ตรวจสอบใหม่
           </button>
         </div>
       </div>
 
-      {/* Filter and Search Panel */}
-      <div className="card mb-8 p-6 bg-white/80 backdrop-blur-md">
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-          {/* Search bar */}
-          <div className="xl:col-span-2 relative">
-            <Search className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
+      {/* Info bar */}
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-5 flex items-center gap-3 text-sm text-amber-800">
+        <Bell className="w-4 h-4 flex-shrink-0 text-amber-600" />
+        <span>ระบบตรวจสอบกฎหมายใหม่โดยอัตโนมัติตามความถี่ที่ตั้งค่า และแจ้งเตือนเมื่อพบฉบับใหม่</span>
+        <Link href="/settings#notifications" className="ml-auto text-amber-700 hover:text-amber-900 font-semibold whitespace-nowrap">
+          ตั้งค่า →
+        </Link>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-5">
+        <div className="flex items-center gap-3 p-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="ค้นหาชื่อกฎหมาย, คีย์เวิร์ด, เนื้อหาย่อ..."
+              placeholder="ค้นหาชื่อกฎหมายหรือเนื้อหา..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-slate-300 focus:border-transparent outline-none transition-all shadow-sm bg-white"
+              onChange={e => setSearchTerm(e.target.value)}
+              className="input-field pl-9 py-2 text-sm"
             />
           </div>
-
-          {/* Law Type Filter */}
-          <div className="relative">
-            <select
-              value={selectedLawType}
-              onChange={(e) => setSelectedLawType(e.target.value)}
-              className="w-full pl-4 pr-10 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-slate-300 bg-white transition-all shadow-sm text-sm text-slate-700 appearance-none font-medium outline-none"
+          <select
+            value={selectedLawType}
+            onChange={e => setSelectedLawType(e.target.value)}
+            className="select-field py-2 text-sm w-44"
+          >
+            <option value="all">ทุกประเภท</option>
+            {LAW_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select
+            value={selectedCategory}
+            onChange={e => setSelectedCategory(e.target.value)}
+            className="select-field py-2 text-sm w-52"
+          >
+            <option value="all">ทุกหมวดหมู่</option>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => { setSearchTerm(''); setSelectedLawType('all'); setSelectedCategory('all') }}
+              className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-500 px-2 py-2 rounded-xl hover:bg-red-50 transition-all"
             >
-              <option value="all">ทุกประเภทกฎหมาย</option>
-              {lawTypes.filter(t => t !== 'all').map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-            <Filter className="absolute right-4 top-3.5 w-4 h-4 text-slate-450 pointer-events-none" />
-          </div>
-
-          {/* Safety Category Filter */}
-          <div className="relative">
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full pl-4 pr-10 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-slate-300 bg-white transition-all shadow-sm text-sm text-slate-700 appearance-none font-medium outline-none"
-            >
-              <option value="all">ทุกหมวดหมู่ความปลอดภัย</option>
-              {categories.filter(c => c !== 'all').map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-            <Filter className="absolute right-4 top-3.5 w-4 h-4 text-slate-450 pointer-events-none" />
-          </div>
+              <X className="w-3.5 h-3.5" /> ล้าง
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Laws List */}
+      {/* Results count */}
+      {!loading && (
+        <p className="text-xs text-slate-500 mb-4">
+          แสดง <span className="font-semibold text-slate-700">{filteredLaws.length}</span> จาก {laws.length} รายการ
+        </p>
+      )}
+
+      {/* Law Cards */}
       {loading ? (
-        <div className="flex items-center justify-center h-96">
+        <div className="flex items-center justify-center h-72">
           <div className="text-center">
-            <div className="w-12 h-12 border-4 border-slate-900 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-slate-500 font-medium">กำลังสืบค้นและจัดหมวดหมู่กฎหมาย...</p>
+            <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-slate-500 text-sm">กำลังโหลดข้อมูลจากราชกิจจานุเบกษา...</p>
           </div>
         </div>
       ) : filteredLaws.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-slate-200/70 shadow-sm">
-          <AlertCircle className="w-16 h-16 mx-auto mb-4 text-slate-355 stroke-1" />
-          <h3 className="text-xl font-bold text-slate-800 mb-2">ไม่พบผลการค้นหา</h3>
-          <p className="text-slate-500 text-sm max-w-md mx-auto">
-            ไม่พบกฎหมายที่ตรงกับคำค้นหาหรือตัวกรองที่เลือก ลองเปลี่ยนเงื่อนไขการค้นหาของคุณอีกครั้ง
-          </p>
+        <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center">
+          <AlertCircle className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+          <p className="text-slate-500 text-sm">ไม่พบกฎหมายที่ตรงกับการค้นหา</p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {filteredLaws.map((law) => (
             <div
               key={law.id}
-              className="bg-white rounded-[32px] border border-slate-200/70 hover:border-slate-300 p-6 sm:p-8 hover:shadow-[0_20px_50px_rgba(0,0,0,0.04)] transition-all duration-300 relative group overflow-hidden"
+              className="bg-white rounded-2xl border border-slate-200 hover:border-amber-300 hover:shadow-md transition-all duration-200 p-5"
             >
-              {/* Top Meta info */}
-              <div className="flex flex-wrap gap-2.5 mb-4 items-center">
-                <span className={`badge text-[11px] py-1.5 px-3.5 rounded-full ${getLawTypeClass(law.lawType)}`}>
+              {/* Badges */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${lawTypeColors[law.lawType] || 'bg-slate-50 text-slate-700 border-slate-200'}`}>
                   {law.lawType}
                 </span>
-                <span className={`badge text-[11px] py-1.5 px-3.5 rounded-full ${getCategoryClass(law.safetyCategory)}`}>
+                <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${categoryColors[law.safetyCategory] || 'bg-slate-50 text-slate-700 border-slate-200'}`}>
                   {law.safetyCategory}
                 </span>
-                <span className="text-xs text-slate-450 ml-auto flex items-center gap-1.5 font-semibold bg-slate-50 border border-slate-100 py-1 px-2.5 rounded-full">
-                  <Calendar className="w-3.5 h-3.5" />
-                  เผยแพร่เมื่อ: {law.publishedDate.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                <span className="ml-auto text-[11px] text-slate-400 flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  เผยแพร่ {new Date(law.publishedDate).toLocaleDateString('th-TH')}
                 </span>
               </div>
 
-              {/* Title & Description */}
-              <div className="mb-6">
-                <h3 className="text-xl font-bold text-slate-900 leading-snug group-hover:text-slate-800 transition mb-3">
-                  {law.title}
-                </h3>
-                <p className="text-slate-600 text-sm leading-relaxed max-w-4xl">
-                  {law.summary}
-                </p>
-              </div>
+              {/* Title */}
+              <h3 className="text-base font-bold text-slate-900 leading-snug mb-2">{law.title}</h3>
+              <p className="text-sm text-slate-600 leading-relaxed mb-4">{law.summary}</p>
 
-              {/* Bottom Actions Row */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-5 border-t border-slate-100 items-center">
-                <div className="flex flex-wrap gap-4 text-xs font-semibold text-slate-500">
-                  <div className="flex items-center gap-1.5 bg-orange-50 border border-orange-100 px-2.5 py-1.5 rounded-xl text-orange-700">
-                    <Zap className="w-3.5 h-3.5 text-orange-500" />
-                    <span>ผลบังคับใช้: {law.effectiveDate.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-100 px-2.5 py-1.5 rounded-xl text-blue-700">
-                    <span>ความถี่ทบทวน: {law.reviewFrequency}</span>
-                  </div>
+              {/* Meta + Actions */}
+              <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100">
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                  <span>บังคับใช้ {new Date(law.effectiveDate).toLocaleDateString('th-TH')}</span>
                 </div>
-
-                <div className="flex gap-3 justify-end">
+                <div className="text-xs text-slate-500 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-xl text-blue-700 font-medium">
+                  ทบทวน: {law.reviewFrequency}
+                </div>
+                <div className="flex gap-2 ml-auto">
                   <a
                     href={law.link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 border border-slate-200 hover:bg-slate-50 px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-700 transition"
+                    className="btn-secondary text-xs px-3 py-1.5"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    ดูราชกิจจานุเบกษาต้นฉบับ
+                    <ExternalLink className="w-3.5 h-3.5" /> ต้นฉบับ
                   </a>
-                  
                   <Link
                     href={`/ai-analysis?title=${encodeURIComponent(law.title)}&text=${encodeURIComponent(law.summary)}&url=${encodeURIComponent(law.link)}`}
-                    className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 px-5 py-2.5 rounded-2xl text-xs font-bold text-white shadow-md shadow-indigo-600/10 transition"
+                    className="flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-all shadow-sm"
                   >
-                    <Brain className="w-3.5 h-3.5" />
-                    วิเคราะห์และสรุปด้วย AI
-                    <ArrowRight className="w-3 h-3 ml-0.5" />
+                    <Brain className="w-3.5 h-3.5" /> วิเคราะห์ด้วย AI
                   </Link>
                 </div>
               </div>

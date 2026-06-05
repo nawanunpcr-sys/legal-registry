@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
-import { Settings, Bell, Database, RefreshCw, CheckCircle2, Save, Shield } from 'lucide-react'
+import { Settings, Bell, Database, RefreshCw, CheckCircle2, Save, Shield, BookMarked, Wifi, WifiOff, ExternalLink } from 'lucide-react'
 import { useNotifications, DEFAULT_SETTINGS } from '../hooks/useNotifications'
+import { getOpenNotebookConfig, saveOpenNotebookConfig, checkConnection } from '../lib/openNotebook'
 import toast from 'react-hot-toast'
 
 const FREQUENCY_OPTIONS = [
@@ -17,8 +18,17 @@ export default function SettingsPage() {
   const [form, setForm] = useState({ ...DEFAULT_SETTINGS })
   const [saved, setSaved] = useState(false)
 
+  // Open Notebook config
+  const [onUrl, setOnUrl] = useState('')
+  const [onPassword, setOnPassword] = useState('')
+  const [onStatus, setOnStatus] = useState(null)   // null | true | false
+  const [onChecking, setOnChecking] = useState(false)
+
   useEffect(() => {
     setForm({ ...DEFAULT_SETTINGS, ...settings })
+    const cfg = getOpenNotebookConfig()
+    setOnUrl(cfg.url)
+    setOnPassword(cfg.password)
   }, [settings])
 
   const handleSave = () => {
@@ -26,6 +36,21 @@ export default function SettingsPage() {
     setSaved(true)
     toast.success('บันทึกการตั้งค่าแล้ว')
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  const handleOnSave = () => {
+    saveOpenNotebookConfig({ url: onUrl, password: onPassword })
+    toast.success('บันทึกการตั้งค่า Open Notebook แล้ว')
+  }
+
+  const handleOnTest = async () => {
+    saveOpenNotebookConfig({ url: onUrl, password: onPassword })
+    setOnChecking(true)
+    const result = await checkConnection()
+    setOnStatus(result.ok)
+    setOnChecking(false)
+    if (result.ok) toast.success('เชื่อมต่อ Open Notebook สำเร็จ!')
+    else toast.error('เชื่อมต่อไม่ได้: ' + result.error)
   }
 
   const handleTestCheck = async () => {
@@ -147,6 +172,69 @@ export default function SettingsPage() {
             <InfoRow label="แหล่งกฎหมาย" value="ราชกิจจานุเบกษา" status="connected" />
             <InfoRow label="เวอร์ชันระบบ" value="v2.0.0" />
             <InfoRow label="สิทธิ์ผู้ใช้" value="จป.วิชาชีพ — EHS Admin" />
+          </div>
+        </div>
+
+        {/* Open Notebook */}
+        <div id="open-notebook" className="bg-white rounded-2xl border border-violet-200 shadow-sm p-6 lg:col-span-2">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="p-2 bg-violet-100 rounded-xl">
+              <BookMarked className="w-4 h-4 text-violet-600" />
+            </div>
+            <div className="flex-1">
+              <h2 className="font-bold text-slate-800">Open Notebook — RAG + Multi-model AI</h2>
+              <p className="text-xs text-slate-500">
+                เชื่อมต่อกับ{' '}
+                <a href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:underline inline-flex items-center gap-0.5">
+                  open-notebook <ExternalLink className="w-3 h-3" />
+                </a>
+                {' '}เพื่อสร้าง Knowledge Base จากกฎหมาย, Chat และ Auto-Insights ด้วย AI หลายโมเดล
+              </p>
+            </div>
+            {onStatus === true && <span className="flex items-center gap-1 text-emerald-600 text-xs font-semibold bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full"><Wifi className="w-3.5 h-3.5" /> เชื่อมต่อแล้ว</span>}
+            {onStatus === false && <span className="flex items-center gap-1 text-red-500 text-xs font-semibold bg-red-50 border border-red-200 px-3 py-1.5 rounded-full"><WifiOff className="w-3.5 h-3.5" /> ไม่สามารถเชื่อมต่อได้</span>}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5">Open Notebook API URL</label>
+              <input
+                type="url"
+                value={onUrl}
+                onChange={e => setOnUrl(e.target.value)}
+                placeholder="http://localhost:5055"
+                className="input-field text-sm"
+              />
+              <p className="text-xs text-slate-400 mt-1">Default: http://localhost:5055 (REST API port)</p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5">Password (OPEN_NOTEBOOK_PASSWORD)</label>
+              <input
+                type="password"
+                value={onPassword}
+                onChange={e => setOnPassword(e.target.value)}
+                placeholder="เว้นว่างถ้าไม่ได้ตั้งรหัสผ่าน"
+                className="input-field text-sm"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleOnSave} className="btn-secondary py-2.5">
+                <CheckCircle2 className="w-4 h-4" /> บันทึก
+              </button>
+              <button onClick={handleOnTest} disabled={onChecking} className="btn-primary bg-violet-600 hover:bg-violet-700 py-2.5">
+                {onChecking ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                ทดสอบ
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 bg-violet-50 rounded-xl p-4 text-xs text-violet-800 space-y-1.5">
+            <p className="font-semibold text-violet-900">วิธีติดตั้ง open-notebook (ด้วย Docker)</p>
+            <pre className="bg-violet-100 rounded-lg p-3 text-violet-900 font-mono text-[11px] overflow-x-auto whitespace-pre">{`git clone https://github.com/lfnovo/open-notebook.git
+cd open-notebook
+cp .env.example .env     # แก้ไข OPEN_NOTEBOOK_ENCRYPTION_KEY
+docker compose up -d
+# UI: http://localhost:8502  |  API: http://localhost:5055`}</pre>
           </div>
         </div>
 

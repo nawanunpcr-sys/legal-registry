@@ -1,14 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Layout from '../components/Layout'
 import Link from 'next/link'
-import { 
-  Sparkles, ArrowRight, Search, Copy, CheckCircle2, AlertCircle, 
+import {
+  Sparkles, ArrowRight, Search, Copy, CheckCircle2, AlertCircle,
   Upload, FileText, Globe, Clipboard, Shield, Scale, Clock, Key,
-  Flame, FlaskConical, TreePine, Mountain, HardHat, Users, Cog, Eye, EyeOff
+  Flame, FlaskConical, TreePine, Mountain, HardHat, Users, Cog, Eye, EyeOff,
+  BookMarked, Send, RefreshCw, MessageSquare, Lightbulb, ExternalLink,
+  Wifi, WifiOff, ChevronDown, ChevronUp
 } from 'lucide-react'
 import { summarizeLaw, generateComplianceChecklist } from '../lib/aiSummarization'
 import { supabase, getCategories } from '../lib/supabase'
+import {
+  checkConnection, setupLawNotebook, sendChatMessage,
+  getChatSession, getSourceInsights, generateInsight,
+  getOpenNotebookConfig, saveOpenNotebookConfig
+} from '../lib/openNotebook'
 import toast from 'react-hot-toast'
 
 export default function AiAnalysisPage() {
@@ -30,11 +37,31 @@ export default function AiAnalysisPage() {
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
 
-  // Load API Key from localStorage & inject PDF.js library dynamically
+  // ── Open Notebook state ──────────────────────────────────────────────────
+  const [onMode, setOnMode] = useState(false)           // toggle ON panel
+  const [onConnected, setOnConnected] = useState(null)  // null=unchecked, true, false
+  const [onChecking, setOnChecking] = useState(false)
+  const [onUrl, setOnUrl] = useState('')
+  const [onPassword, setOnPassword] = useState('')
+  const [onNotebookId, setOnNotebookId] = useState(null)
+  const [onSessionId, setOnSessionId] = useState(null)
+  const [onSourceId, setOnSourceId] = useState(null)
+  const [onSending, setOnSending] = useState(false)
+  const [onMessages, setOnMessages] = useState([])       // { role, content }
+  const [onInput, setOnInput] = useState('')
+  const [onInsights, setOnInsights] = useState([])
+  const [onInsightLoading, setOnInsightLoading] = useState(false)
+  const [onSetupLoading, setOnSetupLoading] = useState(false)
+  const chatEndRef = useRef(null)
+
+  // Load API Key + Open Notebook config from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('GEMINI_API_KEY') || ''
       setApiKey(savedKey)
+      const cfg = getOpenNotebookConfig()
+      setOnUrl(cfg.url)
+      setOnPassword(cfg.password)
 
       // Dynamic injection of PDF.js scripts for client-side PDF parsing
       if (!window.pdfjsLib) {
@@ -65,6 +92,89 @@ export default function AiAnalysisPage() {
     setApiKey(val)
     if (typeof window !== 'undefined') {
       localStorage.setItem('GEMINI_API_KEY', val)
+    }
+  }
+
+  // ── Open Notebook handlers ────────────────────────────────────────────────
+
+  const handleOnSaveConfig = () => {
+    saveOpenNotebookConfig({ url: onUrl, password: onPassword })
+    toast.success('บันทึกการตั้งค่า Open Notebook แล้ว')
+  }
+
+  const handleOnCheck = async () => {
+    saveOpenNotebookConfig({ url: onUrl, password: onPassword })
+    setOnChecking(true)
+    const result = await checkConnection()
+    setOnConnected(result.ok)
+    setOnChecking(false)
+    if (result.ok) {
+      toast.success('เชื่อมต่อ Open Notebook สำเร็จ!')
+    } else {
+      toast.error('เชื่อมต่อไม่ได้: ' + result.error)
+    }
+  }
+
+  const handleOnSetup = async () => {
+    if (!lawText.trim() && !importUrl.trim()) {
+      toast.error('กรุณาใส่ข้อความกฎหมายหรือ URL ก่อน')
+      return
+    }
+    setOnSetupLoading(true)
+    try {
+      saveOpenNotebookConfig({ url: onUrl, password: onPassword })
+      const { notebookId, sourceId, sessionId } = await setupLawNotebook({
+        title: lawTitle || 'กฎหมาย EHS',
+        content: lawText,
+        url: importUrl || undefined,
+      })
+      setOnNotebookId(notebookId)
+      setOnSourceId(sourceId)
+      setOnSessionId(sessionId)
+      setOnMessages([{
+        role: 'assistant',
+        content: `✅ สร้าง Notebook พร้อม Source และ Chat Session สำเร็จแล้ว\n\nคุณสามารถถามคำถามเกี่ยวกับกฎหมาย **"${lawTitle || 'กฎหมายนี้'}"** ได้เลย`
+      }])
+      toast.success('Open Notebook พร้อมใช้งาน!')
+    } catch (err) {
+      toast.error('เกิดข้อผิดพลาด: ' + err.message)
+    } finally {
+      setOnSetupLoading(false)
+    }
+  }
+
+  const handleOnSend = async () => {
+    if (!onInput.trim() || !onSessionId) return
+    const userMsg = onInput.trim()
+    setOnInput('')
+    setOnMessages(prev => [...prev, { role: 'user', content: userMsg }])
+    setOnSending(true)
+    try {
+      const result = await sendChatMessage({ sessionId: onSessionId, message: userMsg })
+      const reply = result?.message || result?.response || result?.content || JSON.stringify(result)
+      setOnMessages(prev => [...prev, { role: 'assistant', content: reply }])
+    } catch (err) {
+      setOnMessages(prev => [...prev, { role: 'assistant', content: `⚠️ เกิดข้อผิดพลาด: ${err.message}` }])
+    } finally {
+      setOnSending(false)
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    }
+  }
+
+  const handleOnInsights = async () => {
+    if (!onSourceId) return
+    setOnInsightLoading(true)
+    try {
+      // Request generation first, then fetch
+      await generateInsight(onSourceId, 'summary').catch(() => {})
+      const data = await getSourceInsights(onSourceId)
+      const items = Array.isArray(data) ? data : data?.insights || []
+      setOnInsights(items)
+      if (items.length === 0) toast('ยังไม่มี Insights — ระบบกำลังประมวลผล', { icon: '⏳' })
+    } catch (err) {
+      toast.error('โหลด Insights ไม่สำเร็จ: ' + err.message)
+    } finally {
+      setOnInsightLoading(false)
     }
   }
 
@@ -380,6 +490,181 @@ export default function AiAnalysisPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Open Notebook Integration Panel ─────────────────────────────────── */}
+      <div className="mb-6 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 overflow-hidden">
+        {/* Toggle header */}
+        <button
+          type="button"
+          onClick={() => setOnMode(v => !v)}
+          className="w-full flex items-center gap-3 px-6 py-4 hover:bg-violet-100/50 transition-colors"
+        >
+          <div className="p-2 bg-violet-600 rounded-xl shadow">
+            <BookMarked className="w-4 h-4 text-white" />
+          </div>
+          <div className="flex-1 text-left">
+            <p className="font-bold text-violet-900 text-sm">Open Notebook — วิเคราะห์เชิงลึกด้วย RAG</p>
+            <p className="text-xs text-violet-600">เชื่อมต่อ open-notebook เพื่อสร้าง Knowledge Base และ Chat กับกฎหมายผ่าน AI หลายโมเดล</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {onConnected === true && <span className="flex items-center gap-1 text-emerald-600 text-xs font-semibold"><Wifi className="w-3.5 h-3.5" /> เชื่อมต่อแล้ว</span>}
+            {onConnected === false && <span className="flex items-center gap-1 text-red-500 text-xs font-semibold"><WifiOff className="w-3.5 h-3.5" /> ไม่สามารถเชื่อมต่อได้</span>}
+            {onMode ? <ChevronUp className="w-4 h-4 text-violet-500" /> : <ChevronDown className="w-4 h-4 text-violet-500" />}
+          </div>
+        </button>
+
+        {onMode && (
+          <div className="border-t border-violet-200 p-6 space-y-5">
+            {/* Connection config */}
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 items-end">
+              <div>
+                <label className="block text-xs font-bold text-violet-700 uppercase tracking-wider mb-1.5">Open Notebook URL</label>
+                <input
+                  type="url"
+                  value={onUrl}
+                  onChange={e => setOnUrl(e.target.value)}
+                  placeholder="http://localhost:5055"
+                  className="input-field text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-violet-700 uppercase tracking-wider mb-1.5">Password (optional)</label>
+                <input
+                  type="password"
+                  value={onPassword}
+                  onChange={e => setOnPassword(e.target.value)}
+                  placeholder="OPEN_NOTEBOOK_PASSWORD"
+                  className="input-field text-sm"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleOnSaveConfig} className="btn-secondary text-sm py-2.5">
+                  <CheckCircle2 className="w-4 h-4" /> บันทึก
+                </button>
+                <button onClick={handleOnCheck} disabled={onChecking} className="btn-primary text-sm py-2.5 bg-violet-600 hover:bg-violet-700">
+                  {onChecking
+                    ? <RefreshCw className="w-4 h-4 animate-spin" />
+                    : <Wifi className="w-4 h-4" />}
+                  ทดสอบ
+                </button>
+                <a href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm py-2.5">
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              </div>
+            </div>
+
+            {/* Setup — only if not yet initialized */}
+            {!onSessionId ? (
+              <div className="bg-white/70 rounded-xl border border-violet-100 p-4">
+                <p className="text-sm text-violet-800 font-semibold mb-1">ขั้นตอน: สร้าง Notebook จากกฎหมายนี้</p>
+                <p className="text-xs text-violet-600 mb-3">
+                  ระบบจะสร้าง Notebook ใหม่, เพิ่มเนื้อหากฎหมายเป็น Source พร้อม Vector Embedding, และเปิด Chat Session
+                </p>
+                <button
+                  onClick={handleOnSetup}
+                  disabled={onSetupLoading || (!lawText && !importUrl)}
+                  className="btn-primary bg-violet-700 hover:bg-violet-800 disabled:opacity-50"
+                >
+                  {onSetupLoading
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> กำลังสร้าง Notebook...</>
+                    : <><BookMarked className="w-4 h-4" /> สร้าง Notebook และเริ่ม Chat</>}
+                </button>
+                {(!lawText && !importUrl) && (
+                  <p className="text-xs text-amber-600 mt-2">⚠️ กรุณาใส่ข้อความกฎหมายหรือ URL ในแท็บด้านบนก่อน</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Session info strip */}
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="bg-violet-100 text-violet-700 px-2.5 py-1 rounded-full font-mono">Notebook: {onNotebookId?.slice(0, 12)}…</span>
+                  <span className="bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full font-mono">Session: {onSessionId?.slice(0, 12)}…</span>
+                  <button onClick={() => { setOnSessionId(null); setOnMessages([]); setOnInsights([]) }} className="text-slate-400 hover:text-red-500 ml-auto">รีเซ็ต</button>
+                </div>
+
+                {/* Chat window */}
+                <div className="bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ height: 380 }}>
+                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50">
+                    <MessageSquare className="w-4 h-4 text-violet-500" />
+                    <span className="text-xs font-bold text-slate-600">Chat กับกฎหมายนี้</span>
+                    <span className="ml-auto text-xs text-slate-400">Powered by open-notebook</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {onMessages.map((m, i) => (
+                      <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+                          m.role === 'user'
+                            ? 'bg-violet-600 text-white rounded-br-md'
+                            : 'bg-slate-100 text-slate-800 rounded-bl-md'
+                        }`}>
+                          {m.content}
+                        </div>
+                      </div>
+                    ))}
+                    {onSending && (
+                      <div className="flex justify-start">
+                        <div className="bg-slate-100 rounded-2xl rounded-bl-md px-4 py-3 flex gap-1.5 items-center">
+                          <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                          <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                          <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+                        </div>
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                  <form
+                    onSubmit={e => { e.preventDefault(); handleOnSend() }}
+                    className="flex items-center gap-2 px-3 py-2 border-t border-slate-100"
+                  >
+                    <input
+                      type="text"
+                      value={onInput}
+                      onChange={e => setOnInput(e.target.value)}
+                      placeholder="ถามคำถามเกี่ยวกับกฎหมายนี้..."
+                      className="input-field py-2 text-sm flex-1"
+                      disabled={onSending}
+                    />
+                    <button
+                      type="submit"
+                      disabled={onSending || !onInput.trim()}
+                      className="p-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl transition-colors"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                </div>
+
+                {/* Insights section */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Lightbulb className="w-4 h-4 text-amber-500" />
+                    <span className="text-sm font-bold text-slate-700">AI Insights</span>
+                    <button
+                      onClick={handleOnInsights}
+                      disabled={onInsightLoading}
+                      className="ml-auto flex items-center gap-1.5 text-xs text-violet-600 hover:underline"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${onInsightLoading ? 'animate-spin' : ''}`} />
+                      {onInsightLoading ? 'กำลังโหลด...' : 'ดึง Insights'}
+                    </button>
+                  </div>
+                  {onInsights.length > 0 ? (
+                    <div className="space-y-2">
+                      {onInsights.map((ins, i) => (
+                        <div key={i} className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-slate-700">
+                          {ins.content || ins.text || JSON.stringify(ins)}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">กดปุ่ม &ldquo;ดึง Insights&rdquo; เพื่อให้ AI สรุปประเด็นสำคัญจากเอกสาร</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* API Key configuration banner */}

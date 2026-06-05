@@ -3,43 +3,49 @@ import { useRouter } from 'next/router'
 import Layout from '../components/Layout'
 import Link from 'next/link'
 import {
-  Sparkles, ArrowRight, Search, Copy, CheckCircle2, AlertCircle,
-  Upload, FileText, Globe, Clipboard, Shield, Scale, Clock, Key,
-  Flame, FlaskConical, TreePine, Mountain, HardHat, Users, Cog, Eye, EyeOff,
-  BookMarked, Send, RefreshCw, MessageSquare, Lightbulb, ExternalLink,
-  Wifi, WifiOff, ChevronDown, ChevronUp
+  Sparkles, CheckCircle2, AlertCircle, Upload, FileText,
+  Globe, Clipboard, Clock, Key, Eye, EyeOff, ArrowRight,
+  BookMarked, Send, RefreshCw, MessageSquare, Lightbulb,
+  ExternalLink, Wifi, WifiOff, ChevronDown, ChevronUp,
+  Copy, BookOpen, Zap, Brain,
 } from 'lucide-react'
-import { summarizeLaw, generateComplianceChecklist } from '../lib/aiSummarization'
+import { summarizeLaw } from '../lib/aiSummarization'
 import { supabase, getCategories } from '../lib/supabase'
 import {
   checkConnection, setupLawNotebook, sendChatMessage,
-  getChatSession, getSourceInsights, generateInsight,
-  getOpenNotebookConfig, saveOpenNotebookConfig
+  getSourceInsights, generateInsight,
+  getOpenNotebookConfig, saveOpenNotebookConfig,
 } from '../lib/openNotebook'
 import toast from 'react-hot-toast'
 
+const INPUT_TABS = [
+  { key: 'text', label: 'วางข้อความ', icon: Clipboard },
+  { key: 'file', label: 'แนบไฟล์ PDF/TXT', icon: Upload },
+  { key: 'url', label: 'ลิงก์ราชกิจจาฯ', icon: Globe },
+]
+
 export default function AiAnalysisPage() {
   const router = useRouter()
-  const { title, text, url } = router.query
+  const { title: qTitle, text: qText, url: qUrl } = router.query
 
-  const [inputMode, setInputMode] = useState('text') // 'text', 'file', 'url'
+  // ── Input state ──────────────────────────────────────────────────────────
+  const [inputMode, setInputMode] = useState('text')
   const [lawText, setLawText] = useState('')
   const [lawTitle, setLawTitle] = useState('')
   const [importUrl, setImportUrl] = useState('')
   const [attachedFile, setAttachedFile] = useState(null)
-  
-  const [summary, setSummary] = useState(null)
-  const [checklist, setChecklist] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [savingToRegistry, setSavingToRegistry] = useState(false)
-
-  // Gemini API Key State
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
 
+  // ── Result state ─────────────────────────────────────────────────────────
+  const [result, setResult] = useState(null)     // { title, summary, keyPoints, lawType, safetyCategory, reviewFrequency, actionItems }
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(false)
+
   // ── Open Notebook state ──────────────────────────────────────────────────
-  const [onMode, setOnMode] = useState(false)           // toggle ON panel
-  const [onConnected, setOnConnected] = useState(null)  // null=unchecked, true, false
+  const [onOpen, setOnOpen] = useState(false)
+  const [onConnected, setOnConnected] = useState(null)
   const [onChecking, setOnChecking] = useState(false)
   const [onUrl, setOnUrl] = useState('')
   const [onPassword, setOnPassword] = useState('')
@@ -47,1075 +53,572 @@ export default function AiAnalysisPage() {
   const [onSessionId, setOnSessionId] = useState(null)
   const [onSourceId, setOnSourceId] = useState(null)
   const [onSending, setOnSending] = useState(false)
-  const [onMessages, setOnMessages] = useState([])       // { role, content }
+  const [onMessages, setOnMessages] = useState([])
   const [onInput, setOnInput] = useState('')
   const [onInsights, setOnInsights] = useState([])
   const [onInsightLoading, setOnInsightLoading] = useState(false)
   const [onSetupLoading, setOnSetupLoading] = useState(false)
   const chatEndRef = useRef(null)
 
-  // Load API Key + Open Notebook config from localStorage
+  // Load saved config
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedKey = localStorage.getItem('GEMINI_API_KEY') || ''
-      setApiKey(savedKey)
+      setApiKey(localStorage.getItem('GEMINI_API_KEY') || '')
       const cfg = getOpenNotebookConfig()
       setOnUrl(cfg.url)
       setOnPassword(cfg.password)
-
-      // Dynamic injection of PDF.js scripts for client-side PDF parsing
       if (!window.pdfjsLib) {
-        const script = document.createElement('script')
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js'
-        script.async = true
-        script.onload = () => {
+        const s = document.createElement('script')
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js'
+        s.async = true
+        s.onload = () => {
           window.pdfjsLib = window['pdfjs-dist/build/pdf']
           window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'
         }
-        document.body.appendChild(script)
+        document.body.appendChild(s)
       }
     }
   }, [])
 
-  // Auto populate query parameters
   useEffect(() => {
-    if (title) setLawTitle(decodeURIComponent(title))
-    if (text) setLawText(decodeURIComponent(text))
-    if (url) {
-      setImportUrl(decodeURIComponent(url))
-      setInputMode('url')
-    }
-  }, [title, text, url])
+    if (qTitle) setLawTitle(decodeURIComponent(qTitle))
+    if (qText) setLawText(decodeURIComponent(qText))
+    if (qUrl) { setImportUrl(decodeURIComponent(qUrl)); setInputMode('url') }
+  }, [qTitle, qText, qUrl])
 
-  // Save API Key to localStorage
-  const handleSaveApiKey = (val) => {
-    setApiKey(val)
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('GEMINI_API_KEY', val)
+  const saveApiKey = v => {
+    setApiKey(v)
+    localStorage.setItem('GEMINI_API_KEY', v)
+  }
+
+  // ── File upload ──────────────────────────────────────────────────────────
+  const handleFile = async e => {
+    const file = e.target.files[0]
+    if (!file) return
+    setAttachedFile({ name: file.name, size: (file.size / 1024).toFixed(1) + ' KB' })
+    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      if (!window.pdfjsLib) { toast.error('PDF reader loading, please try again'); return }
+      setLoading(true)
+      const id = toast.loading('กำลังอ่านไฟล์ PDF...')
+      try {
+        const reader = new FileReader()
+        reader.onload = async function () {
+          const pdf = await window.pdfjsLib.getDocument(new Uint8Array(this.result)).promise
+          let text = ''
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i)
+            const content = await page.getTextContent()
+            text += content.items.map(x => x.str).join(' ') + '\n'
+          }
+          if (!text.trim()) throw new Error('ไม่พบข้อความในไฟล์ PDF')
+          setLawText(text)
+          if (!lawTitle) setLawTitle(file.name.replace(/\.[^/.]+$/, ''))
+          toast.success('อ่านไฟล์ PDF สำเร็จ', { id })
+          setLoading(false)
+        }
+        reader.readAsArrayBuffer(file)
+      } catch (err) { toast.error(err.message, { id }); setLoading(false) }
+    } else {
+      const reader = new FileReader()
+      reader.onload = e => {
+        setLawText(e.target.result)
+        if (!lawTitle) setLawTitle(file.name.replace(/\.[^/.]+$/, ''))
+        toast.success('อ่านไฟล์สำเร็จ')
+      }
+      reader.readAsText(file)
     }
+  }
+
+  // ── URL fetch ────────────────────────────────────────────────────────────
+  const handleUrlFetch = async () => {
+    if (!importUrl.trim()) { toast.error('กรุณากรอก URL'); return }
+    let parsed
+    try { parsed = new URL(importUrl.trim()) } catch { toast.error('URL ไม่ถูกต้อง'); return }
+    const host = parsed.hostname.replace(/^www\./, '')
+    const source = host.includes('osh.labour.go.th') ? 'osh' : host.includes('ratchakitcha.soc.go.th') ? 'royal-gazette' : null
+    if (!source) { toast.error('รองรับเฉพาะลิงก์ osh.labour.go.th และ ratchakitcha.soc.go.th'); return }
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/scrape-laws-v2?source=${source}&limit=20`)
+      const data = await res.json()
+      if (!data.success || !data.data?.length) throw new Error(data.error || 'ไม่พบข้อมูล')
+      const law = data.data.find(l => l.link?.toLowerCase() === importUrl.trim().toLowerCase()) || data.data[0]
+      setLawTitle(law.title || '')
+      setLawText([law.summary, law.lawType && `ประเภท: ${law.lawType}`, law.safetyCategory && `หมวดหมู่: ${law.safetyCategory}`, law.link && `ลิงก์: ${law.link}`].filter(Boolean).join('\n'))
+      setInputMode('text')
+      toast.success('นำเข้าข้อมูลสำเร็จ')
+    } catch (err) { toast.error(err.message) } finally { setLoading(false) }
+  }
+
+  // ── Analyze ──────────────────────────────────────────────────────────────
+  const handleAnalyze = async () => {
+    if (!lawText.trim()) { toast.error('กรุณากรอกข้อความกฎหมายก่อน'); return }
+    setLoading(true)
+    setResult(null)
+    try {
+      const data = await summarizeLaw(lawText, lawTitle || 'กฎหมาย')
+      if (data) {
+        setResult(data)
+        toast.success(apiKey ? 'วิเคราะห์ด้วย Gemini AI สำเร็จ' : 'วิเคราะห์ด้วยระบบ Local สำเร็จ')
+      } else {
+        toast.error('ไม่สามารถวิเคราะห์ได้')
+      }
+    } catch { toast.error('เกิดข้อผิดพลาดในการวิเคราะห์') } finally { setLoading(false) }
+  }
+
+  const copyResult = () => {
+    if (!result) return
+    const text = `${result.title}\n\nสรุป:\n${result.summary}\n\nประเด็นสำคัญ:\n${result.keyPoints?.map((p, i) => `${i + 1}. ${p}`).join('\n') || '-'}`
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+    toast.success('คัดลอกแล้ว')
+  }
+
+  // ── Save to registry ─────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!result) return
+    setSaving(true)
+    try {
+      const { data: cats } = await getCategories()
+      const matched = cats?.find(c => c.name === result.safetyCategory || c.name?.includes(result.safetyCategory?.split(' ')[0]))
+      const { data: law, error } = await supabase.from('laws').insert([{
+        law_code: `AI-${Date.now()}`,
+        title: result.title || lawTitle || 'กฎหมายจาก AI',
+        category_id: matched?.id || null,
+        description: result.summary,
+        subject: result.safetyCategory,
+        responsible_person: 'ฝ่าย EHS / จป.วิชาชีพ',
+        review_frequency: result.reviewFrequency,
+        required_actions: result.actionItems?.join('\n'),
+        priority: result.penalties?.length > 0 ? 'critical' : 'high',
+        compliance_status: 'pending',
+        status: 'active',
+        created_at: new Date().toISOString(),
+        last_updated: new Date().toISOString(),
+      }]).select().single()
+      if (error) throw error
+      toast.success('บันทึกเข้าทะเบียนกฎหมายแล้ว')
+      router.push(`/legal/${law.id}`)
+    } catch (err) { toast.error('บันทึกไม่สำเร็จ: ' + err.message) } finally { setSaving(false) }
   }
 
   // ── Open Notebook handlers ────────────────────────────────────────────────
-
-  const handleOnSaveConfig = () => {
-    saveOpenNotebookConfig({ url: onUrl, password: onPassword })
-    toast.success('บันทึกการตั้งค่า Open Notebook แล้ว')
-  }
-
   const handleOnCheck = async () => {
     saveOpenNotebookConfig({ url: onUrl, password: onPassword })
     setOnChecking(true)
-    const result = await checkConnection()
-    setOnConnected(result.ok)
+    const r = await checkConnection()
+    setOnConnected(r.ok)
     setOnChecking(false)
-    if (result.ok) {
-      toast.success('เชื่อมต่อ Open Notebook สำเร็จ!')
-    } else {
-      toast.error('เชื่อมต่อไม่ได้: ' + result.error)
-    }
+    if (r.ok) toast.success('เชื่อมต่อ Open Notebook สำเร็จ!')
+    else toast.error('เชื่อมต่อไม่ได้: ' + r.error)
   }
 
   const handleOnSetup = async () => {
-    if (!lawText.trim() && !importUrl.trim()) {
-      toast.error('กรุณาใส่ข้อความกฎหมายหรือ URL ก่อน')
-      return
-    }
+    if (!lawText.trim() && !importUrl.trim()) { toast.error('ใส่ข้อความหรือ URL ก่อน'); return }
     setOnSetupLoading(true)
     try {
       saveOpenNotebookConfig({ url: onUrl, password: onPassword })
-      const { notebookId, sourceId, sessionId } = await setupLawNotebook({
-        title: lawTitle || 'กฎหมาย EHS',
-        content: lawText,
-        url: importUrl || undefined,
-      })
-      setOnNotebookId(notebookId)
-      setOnSourceId(sourceId)
-      setOnSessionId(sessionId)
-      setOnMessages([{
-        role: 'assistant',
-        content: `✅ สร้าง Notebook พร้อม Source และ Chat Session สำเร็จแล้ว\n\nคุณสามารถถามคำถามเกี่ยวกับกฎหมาย **"${lawTitle || 'กฎหมายนี้'}"** ได้เลย`
-      }])
+      const { notebookId, sourceId, sessionId } = await setupLawNotebook({ title: lawTitle || 'กฎหมาย EHS', content: lawText, url: importUrl || undefined })
+      setOnNotebookId(notebookId); setOnSourceId(sourceId); setOnSessionId(sessionId)
+      setOnMessages([{ role: 'assistant', content: `✅ พร้อมแล้ว สามารถถามคำถามเกี่ยวกับ **"${lawTitle || 'กฎหมาย'}"** ได้เลย` }])
       toast.success('Open Notebook พร้อมใช้งาน!')
-    } catch (err) {
-      toast.error('เกิดข้อผิดพลาด: ' + err.message)
-    } finally {
-      setOnSetupLoading(false)
-    }
+    } catch (err) { toast.error(err.message) } finally { setOnSetupLoading(false) }
   }
 
   const handleOnSend = async () => {
     if (!onInput.trim() || !onSessionId) return
-    const userMsg = onInput.trim()
-    setOnInput('')
-    setOnMessages(prev => [...prev, { role: 'user', content: userMsg }])
+    const msg = onInput.trim(); setOnInput('')
+    setOnMessages(prev => [...prev, { role: 'user', content: msg }])
     setOnSending(true)
     try {
-      const result = await sendChatMessage({ sessionId: onSessionId, message: userMsg })
-      const reply = result?.message || result?.response || result?.content || JSON.stringify(result)
-      setOnMessages(prev => [...prev, { role: 'assistant', content: reply }])
-    } catch (err) {
-      setOnMessages(prev => [...prev, { role: 'assistant', content: `⚠️ เกิดข้อผิดพลาด: ${err.message}` }])
-    } finally {
-      setOnSending(false)
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-    }
+      const r = await sendChatMessage({ sessionId: onSessionId, message: msg })
+      setOnMessages(prev => [...prev, { role: 'assistant', content: r?.message || r?.response || r?.content || JSON.stringify(r) }])
+    } catch (err) { setOnMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${err.message}` }]) }
+    finally { setOnSending(false); setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100) }
   }
 
   const handleOnInsights = async () => {
     if (!onSourceId) return
     setOnInsightLoading(true)
     try {
-      // Request generation first, then fetch
       await generateInsight(onSourceId, 'summary').catch(() => {})
       const data = await getSourceInsights(onSourceId)
       const items = Array.isArray(data) ? data : data?.insights || []
       setOnInsights(items)
-      if (items.length === 0) toast('ยังไม่มี Insights — ระบบกำลังประมวลผล', { icon: '⏳' })
-    } catch (err) {
-      toast.error('โหลด Insights ไม่สำเร็จ: ' + err.message)
-    } finally {
-      setOnInsightLoading(false)
-    }
+      if (!items.length) toast('ระบบกำลังประมวลผล', { icon: '⏳' })
+    } catch (err) { toast.error(err.message) } finally { setOnInsightLoading(false) }
   }
 
-  // Robust Client-side PDF Parser + Text Reader
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-
-    setAttachedFile({
-      name: file.name,
-      size: (file.size / 1024).toFixed(1) + ' KB',
-      type: file.type
-    })
-
-    // If PDF File
-    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-      if (!window.pdfjsLib) {
-        toast.error('ระบบกำลังโหลดตัวแปลงไฟล์ PDF กรุณารอสักครู่แล้วลองอีกครั้ง')
-        return
-      }
-
-      setLoading(true)
-      const toastId = toast.loading('กำลังแยกข้อความภาษาไทยจากไฟล์ PDF...')
-      
-      try {
-        const reader = new FileReader()
-        reader.onload = async function() {
-          try {
-            const typedarray = new Uint8Array(this.result)
-            const pdf = await window.pdfjsLib.getDocument(typedarray).promise
-            let fullText = ''
-            
-            for (let i = 1; i <= pdf.numPages; i++) {
-              const page = await pdf.getPage(i)
-              const textContent = await page.getTextContent()
-              const pageText = textContent.items.map(item => item.str).join(' ')
-              fullText += pageText + '\n'
-            }
-
-            if (!fullText.trim()) {
-              throw new Error('ไม่พบตัวอักษรในไฟล์ PDF (อาจเป็นไฟล์รูปภาพสแกนที่ไม่มีข้อความ)')
-            }
-
-            setLawText(fullText)
-            if (!lawTitle) {
-              setLawTitle(file.name.replace(/\.[^/.]+$/, ""))
-            }
-            toast.success('ดึงข้อความจากไฟล์ PDF สำเร็จ!', { id: toastId })
-          } catch (err) {
-            toast.error('ล้มเหลว: ' + err.message, { id: toastId })
-          } finally {
-            setLoading(false)
-          }
-        }
-        reader.readAsArrayBuffer(file)
-      } catch (err) {
-        toast.error('ไม่สามารถอ่านไฟล์ได้', { id: toastId })
-        setLoading(false)
-      }
-    } else {
-      // Standard Text File
-      const reader = new FileReader()
-      reader.onload = (evt) => {
-        setLawText(evt.target.result)
-        if (!lawTitle) {
-          setLawTitle(file.name.replace(/\.[^/.]+$/, ""))
-        }
-        toast.success('อ่านไฟล์และเตรียมข้อมูลสำเร็จ')
-      }
-      reader.onerror = () => {
-        toast.error('ไม่สามารถอ่านไฟล์ได้')
-      }
-      reader.readAsText(file)
-    }
-  }
-
-  const handleUrlFetch = async () => {
-    if (!importUrl.trim()) {
-      toast.error('กรุณากรอก URL กฎหมาย')
-      return
-    }
-
-    let parsedUrl
-    try {
-      parsedUrl = new URL(importUrl.trim())
-    } catch (err) {
-      toast.error('รูปแบบ URL ไม่ถูกต้อง')
-      return
-    }
-
-    const host = parsedUrl.hostname.replace(/^www\./, '')
-    const source = host.includes('osh.labour.go.th')
-      ? 'osh'
-      : host.includes('ratchakitcha.soc.go.th')
-      ? 'royal-gazette'
-      : null
-
-    if (!source) {
-      toast.error('รองรับเฉพาะลิงก์ osh.labour.go.th และ ratchakitcha.soc.go.th')
-      return
-    }
-
-    setLoading(true)
-    try {
-      const response = await fetch(`/api/scrape-laws-v2?source=${source}&limit=20`)
-      const result = await response.json()
-
-      if (!result.success || !Array.isArray(result.data) || result.data.length === 0) {
-        throw new Error(result.error || 'ไม่พบข้อมูลจากลิงก์ที่ระบุ')
-      }
-
-      const normalizedUrl = importUrl.trim().toLowerCase()
-      const matchedLaw = result.data.find((law) => law.link?.toLowerCase() === normalizedUrl)
-        || result.data.find((law) => normalizedUrl.includes(String(law.id).toLowerCase()))
-        || result.data[0]
-
-      setLawTitle(matchedLaw.title || '')
-      setLawText([
-        matchedLaw.summary,
-        matchedLaw.status ? `สถานะ: ${matchedLaw.status}` : '',
-        matchedLaw.lawType ? `ประเภท: ${matchedLaw.lawType}` : '',
-        matchedLaw.safetyCategory ? `หมวดหมู่: ${matchedLaw.safetyCategory}` : '',
-        matchedLaw.effectiveDate ? `วันที่บังคับใช้: ${matchedLaw.effectiveDate}` : '',
-        matchedLaw.link ? `แหล่งที่มา: ${matchedLaw.link}` : '',
-      ].filter(Boolean).join('\n'))
-      setLoading(false)
-      toast.success('นำเข้าเนื้อหาจากลิงก์หน่วยงานรัฐสำเร็จ')
-      setInputMode('text')
-    } catch (err) {
-      toast.error(err.message || 'ไม่สามารถนำเข้าข้อมูลจากลิงก์ได้')
-      setLoading(false)
-    }
-  }
-
-  const handleAnalyze = async () => {
-    if (!lawText.trim()) {
-      toast.error('กรุณากรอกข้อความหรือนำเข้าเนื้อหากฎหมายก่อน')
-      return
-    }
-
-    setLoading(true)
-    try {
-      const result = await summarizeLaw(lawText, lawTitle || 'กฎหมายวิเคราะห์นำเข้า')
-      if (result) {
-        setSummary(result)
-        // Generate checklist dynamically
-        const mockLaw = { 
-          title: result.title, 
-          responsible_person: 'ฝ่าย EHS / จป.วิชาชีพ',
-          effective_date: result.effectiveDate || 'ภายใน 30 วัน',
-          review_frequency: result.reviewFrequency
-        }
-        setChecklist(generateComplianceChecklist(mockLaw))
-        if (apiKey && apiKey.trim()) {
-          toast.success('วิเคราะห์เสร็จสิ้นด้วย Google Gemini 1.5 Flash!')
-        } else {
-          toast.success('วิเคราะห์เสร็จสิ้นด้วยระบบ local rules engine!')
-        }
-      }
-    } catch (err) {
-      toast.error('เกิดข้อผิดพลาดในการวิเคราะห์ด้วย AI')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text)
-    toast.success('คัดลอกลง Clipboard เรียบร้อย')
-  }
-
-  const normalizeLawType = (lawType) => {
-    if (lawType === 'พระราชบัญญัติ') return 'law'
-    if (lawType === 'กฎกระทรวง' || lawType === 'พระราชกฤษฎีกา') return 'regulation'
-    return 'announcement'
-  }
-
-  const handleSaveToRegistry = async () => {
-    if (!summary) return
-
-    setSavingToRegistry(true)
-    try {
-      let sourceHost = 'AI Analysis'
-      if (importUrl) {
-        try {
-          sourceHost = new URL(importUrl).hostname
-        } catch (err) {
-          sourceHost = importUrl
-        }
-      }
-
-      const { data: categories } = await getCategories()
-      const matchedCategory = categories?.find((category) =>
-        category.name === summary.safetyCategory ||
-        category.name?.includes(summary.safetyCategory?.split(' ')[0])
-      )
-
-      const { data: newLaw, error: lawError } = await supabase
-        .from('laws')
-        .insert([{
-          law_code: `AI-${Date.now()}`,
-          title: summary.title || lawTitle || 'กฎหมายจาก AI',
-          category_id: matchedCategory?.id || null,
-          description: summary.summary || summary.keyPoints?.join('\n') || lawText.slice(0, 500),
-          subject: summary.safetyCategory,
-          effective_date: null,
-          responsible_person: 'ฝ่าย EHS / จป.วิชาชีพ',
-          review_frequency: summary.reviewFrequency,
-          related_documents: summary.relatedDocuments?.join('\n') || importUrl,
-          required_actions: summary.actionItems?.join('\n'),
-          priority: summary.penalties?.length > 0 ? 'critical' : 'high',
-          compliance_status: 'pending',
-          issuing_authority: sourceHost,
-          law_type: normalizeLawType(summary.lawType),
-          status: 'active',
-          created_at: new Date().toISOString(),
-          last_updated: new Date().toISOString(),
-        }])
-        .select()
-
-      if (lawError) throw lawError
-
-      const lawId = newLaw?.[0]?.id
-
-      if (lawId) {
-        const analysisPayload = {
-          law_id: lawId,
-          analysis_source: apiKey ? 'gemini' : 'local_rules',
-          raw_analysis: JSON.stringify(summary),
-          where_to_do: summary.affectedParties?.join(', ') || 'ฝ่ายที่เกี่ยวข้อง',
-          what_to_do: summary.actionItems || [],
-          is_approved: false,
-          created_by: 'AI Analysis',
-        }
-
-        const { error: analysisError } = await supabase
-          .from('ai_analyses')
-          .insert([analysisPayload])
-
-        if (analysisError) {
-          await supabase.from('ai_analyses').insert([{
-            law_id: lawId,
-            summary: summary.summary || summary.title,
-            key_points: summary.keyPoints || [],
-            created_at: new Date().toISOString(),
-          }])
-        }
-      }
-
-      toast.success('บันทึกผล AI เข้าทะเบียนกฎหมายและ Supabase แล้ว')
-      router.push(lawId ? `/legal/${lawId}` : '/legal')
-    } catch (err) {
-      toast.error('บันทึกเข้าทะเบียนไม่สำเร็จ: ' + err.message)
-    } finally {
-      setSavingToRegistry(false)
-    }
-  }
-
-  const getLawTypeBadgeColor = (type) => {
-    switch (type) {
-      case 'พระราชบัญญัติ': return 'badge-lawtype-act'
-      case 'พระราชกฤษฎีกา': return 'badge-lawtype-decree'
-      case 'กฎกระทรวง': return 'badge-lawtype-ministerial'
-      case 'ประกาศกระทรวง': return 'badge-lawtype-ministry-ann'
-      case 'ประกาศกรม': return 'badge-lawtype-dept-ann'
-      default: return 'bg-slate-100 text-slate-800'
-    }
-  }
-
-  const getCategoryClass = (cat) => {
-    switch (cat) {
-      case 'ความปลอดภัยทั่วไป': return 'badge-cat-general'
-      case 'เครื่องจักร / อุปกรณ์ / เครื่องมือ': return 'badge-cat-machinery'
-      case 'ไฟฟ้าและอัคคีภัย': return 'badge-cat-electrical'
-      case 'สารเคมีและวัตถุอันตราย': return 'badge-cat-chemical'
-      case 'สิ่งแวดล้อมในการทำงาน': return 'badge-cat-env'
-      case 'การทำงานในที่อับอากาศ / ที่สูง / พื้นที่อันตราย': return 'badge-cat-confined'
-      case 'การก่อสร้าง': return 'badge-cat-construction'
-      case 'สวัสดิการและแรงงาน': return 'badge-cat-welfare'
-      default: return 'bg-slate-100 text-slate-850'
-    }
+  const lawTypeColors = {
+    'พระราชบัญญัติ': 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    'พระราชกฤษฎีกา': 'bg-violet-50 text-violet-700 border-violet-200',
+    'กฎกระทรวง': 'bg-blue-50 text-blue-700 border-blue-200',
+    'ประกาศกระทรวง': 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    'ประกาศกรม': 'bg-teal-50 text-teal-700 border-teal-200',
   }
 
   return (
     <Layout>
-      {/* Header Banner */}
-      <div className="mb-8 rounded-[32px] bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-950 text-white p-8 sm:p-10 shadow-2xl relative overflow-hidden">
-        <div className="absolute right-0 bottom-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl" />
-        <div className="relative z-10 grid gap-8 lg:grid-cols-[2fr_1fr] items-center">
-          <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs text-indigo-350 font-bold border border-white/5 backdrop-blur-md">
-              <Sparkles className="w-3.5 h-3.5" /> AI Engine v2.6 (Gemini Enabled)
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between mb-6 gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <div className="p-2.5 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-xl shadow-lg shadow-indigo-500/30">
+              <Brain className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-4xl font-bold tracking-tight text-white leading-tight">
-              ตัววิเคราะห์และสรุปกฎหมายอัจฉริยะ
-            </h1>
-            <p className="max-w-2xl text-slate-305 text-sm sm:text-base leading-relaxed">
-              ช่วย จป.วิชาชีพ และทีม EHS วิเคราะห์ข้อบังคับกฎหมาย ประเมินประเภท จำแนกหมวดหมู่ความปลอดภัย แนะนำรอบการทบทวน และสร้าง Checklist ความสอดคล้องอย่างสมบูรณ์แบบ
-            </p>
+            <h1 className="text-2xl font-bold text-slate-900">วิเคราะห์กฎหมายด้วย AI</h1>
           </div>
-
-          <div className="bg-white/5 border border-white/10 rounded-[28px] p-6 backdrop-blur-sm self-stretch flex flex-col justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-indigo-300 font-semibold mb-2">เทคโนโลยีหลัก</p>
-              <h3 className="text-lg font-bold">NLP & Smart Classification</h3>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                เชื่อมต่อและแยกข้อความกฎหมายผ่าน Gemini API หรือคัดกรองข้อมูลอิงกฎกระทรวง จัดกลุ่มตาม 8 หมวดความปลอดภัยสากล
-              </p>
-            </div>
-            <div className="border-t border-white/10 pt-4 mt-4 flex items-center justify-between text-xs text-slate-300">
-              <span>ประมวลผลโลคอลทันที</span>
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            </div>
-          </div>
+          <p className="text-slate-500 text-sm ml-14">สรุปประเด็นสำคัญ จำแนกประเภท และระบุหมวดหมู่ความปลอดภัยโดยอัตโนมัติ</p>
+        </div>
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border ${apiKey ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+          <Zap className="w-3.5 h-3.5" />
+          {apiKey ? 'Gemini AI (โมเดลจริง)' : 'Local Rules Engine'}
         </div>
       </div>
 
-      {/* ── Open Notebook Integration Panel ─────────────────────────────────── */}
-      <div className="mb-6 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 overflow-hidden">
-        {/* Toggle header */}
-        <button
-          type="button"
-          onClick={() => setOnMode(v => !v)}
-          className="w-full flex items-center gap-3 px-6 py-4 hover:bg-violet-100/50 transition-colors"
-        >
-          <div className="p-2 bg-violet-600 rounded-xl shadow">
-            <BookMarked className="w-4 h-4 text-white" />
-          </div>
-          <div className="flex-1 text-left">
-            <p className="font-bold text-violet-900 text-sm">Open Notebook — วิเคราะห์เชิงลึกด้วย RAG</p>
-            <p className="text-xs text-violet-600">เชื่อมต่อ open-notebook เพื่อสร้าง Knowledge Base และ Chat กับกฎหมายผ่าน AI หลายโมเดล</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {onConnected === true && <span className="flex items-center gap-1 text-emerald-600 text-xs font-semibold"><Wifi className="w-3.5 h-3.5" /> เชื่อมต่อแล้ว</span>}
-            {onConnected === false && <span className="flex items-center gap-1 text-red-500 text-xs font-semibold"><WifiOff className="w-3.5 h-3.5" /> ไม่สามารถเชื่อมต่อได้</span>}
-            {onMode ? <ChevronUp className="w-4 h-4 text-violet-500" /> : <ChevronDown className="w-4 h-4 text-violet-500" />}
-          </div>
-        </button>
+      <div className="grid gap-6 lg:grid-cols-[1fr_380px] items-start">
+        {/* ── LEFT: Input + Results ─────────────────────────────────────── */}
+        <div className="space-y-5">
 
-        {onMode && (
-          <div className="border-t border-violet-200 p-6 space-y-5">
-            {/* Connection config */}
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 items-end">
-              <div>
-                <label className="block text-xs font-bold text-violet-700 uppercase tracking-wider mb-1.5">Open Notebook URL</label>
-                <input
-                  type="url"
-                  value={onUrl}
-                  onChange={e => setOnUrl(e.target.value)}
-                  placeholder="http://localhost:5055"
-                  className="input-field text-sm"
-                />
+          {/* API Key */}
+          <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-xl flex-shrink-0">
+                <Key className="w-4 h-4 text-blue-600" />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-violet-700 uppercase tracking-wider mb-1.5">Password (optional)</label>
-                <input
-                  type="password"
-                  value={onPassword}
-                  onChange={e => setOnPassword(e.target.value)}
-                  placeholder="OPEN_NOTEBOOK_PASSWORD"
-                  className="input-field text-sm"
-                />
-              </div>
-              <div className="flex gap-2">
-                <button onClick={handleOnSaveConfig} className="btn-secondary text-sm py-2.5">
-                  <CheckCircle2 className="w-4 h-4" /> บันทึก
-                </button>
-                <button onClick={handleOnCheck} disabled={onChecking} className="btn-primary text-sm py-2.5 bg-violet-600 hover:bg-violet-700">
-                  {onChecking
-                    ? <RefreshCw className="w-4 h-4 animate-spin" />
-                    : <Wifi className="w-4 h-4" />}
-                  ทดสอบ
-                </button>
-                <a href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm py-2.5">
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              </div>
-            </div>
-
-            {/* Setup — only if not yet initialized */}
-            {!onSessionId ? (
-              <div className="bg-white/70 rounded-xl border border-violet-100 p-4">
-                <p className="text-sm text-violet-800 font-semibold mb-1">ขั้นตอน: สร้าง Notebook จากกฎหมายนี้</p>
-                <p className="text-xs text-violet-600 mb-3">
-                  ระบบจะสร้าง Notebook ใหม่, เพิ่มเนื้อหากฎหมายเป็น Source พร้อม Vector Embedding, และเปิด Chat Session
-                </p>
-                <button
-                  onClick={handleOnSetup}
-                  disabled={onSetupLoading || (!lawText && !importUrl)}
-                  className="btn-primary bg-violet-700 hover:bg-violet-800 disabled:opacity-50"
-                >
-                  {onSetupLoading
-                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> กำลังสร้าง Notebook...</>
-                    : <><BookMarked className="w-4 h-4" /> สร้าง Notebook และเริ่ม Chat</>}
-                </button>
-                {(!lawText && !importUrl) && (
-                  <p className="text-xs text-amber-600 mt-2">⚠️ กรุณาใส่ข้อความกฎหมายหรือ URL ในแท็บด้านบนก่อน</p>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Session info strip */}
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="bg-violet-100 text-violet-700 px-2.5 py-1 rounded-full font-mono">Notebook: {onNotebookId?.slice(0, 12)}…</span>
-                  <span className="bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full font-mono">Session: {onSessionId?.slice(0, 12)}…</span>
-                  <button onClick={() => { setOnSessionId(null); setOnMessages([]); setOnInsights([]) }} className="text-slate-400 hover:text-red-500 ml-auto">รีเซ็ต</button>
-                </div>
-
-                {/* Chat window */}
-                <div className="bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ height: 380 }}>
-                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                    <MessageSquare className="w-4 h-4 text-violet-500" />
-                    <span className="text-xs font-bold text-slate-600">Chat กับกฎหมายนี้</span>
-                    <span className="ml-auto text-xs text-slate-400">Powered by open-notebook</span>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {onMessages.map((m, i) => (
-                      <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
-                          m.role === 'user'
-                            ? 'bg-violet-600 text-white rounded-br-md'
-                            : 'bg-slate-100 text-slate-800 rounded-bl-md'
-                        }`}>
-                          {m.content}
-                        </div>
-                      </div>
-                    ))}
-                    {onSending && (
-                      <div className="flex justify-start">
-                        <div className="bg-slate-100 rounded-2xl rounded-bl-md px-4 py-3 flex gap-1.5 items-center">
-                          <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                          <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                          <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
-                        </div>
-                      </div>
-                    )}
-                    <div ref={chatEndRef} />
-                  </div>
-                  <form
-                    onSubmit={e => { e.preventDefault(); handleOnSend() }}
-                    className="flex items-center gap-2 px-3 py-2 border-t border-slate-100"
-                  >
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-slate-700">Gemini API Key <span className="text-slate-400 font-normal">(ไม่บังคับ — ระบบทำงานได้โดยไม่ต้องใช้)</span></p>
+                <div className="flex gap-2 mt-1.5">
+                  <div className="relative flex-1">
                     <input
-                      type="text"
-                      value={onInput}
-                      onChange={e => setOnInput(e.target.value)}
-                      placeholder="ถามคำถามเกี่ยวกับกฎหมายนี้..."
-                      className="input-field py-2 text-sm flex-1"
-                      disabled={onSending}
+                      type={showKey ? 'text' : 'password'}
+                      value={apiKey}
+                      onChange={e => saveApiKey(e.target.value)}
+                      placeholder="AIza..."
+                      className="input-field py-2 text-sm pr-9"
                     />
-                    <button
-                      type="submit"
-                      disabled={onSending || !onInput.trim()}
-                      className="p-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl transition-colors"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </form>
-                </div>
-
-                {/* Insights section */}
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Lightbulb className="w-4 h-4 text-amber-500" />
-                    <span className="text-sm font-bold text-slate-700">AI Insights</span>
-                    <button
-                      onClick={handleOnInsights}
-                      disabled={onInsightLoading}
-                      className="ml-auto flex items-center gap-1.5 text-xs text-violet-600 hover:underline"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${onInsightLoading ? 'animate-spin' : ''}`} />
-                      {onInsightLoading ? 'กำลังโหลด...' : 'ดึง Insights'}
+                    <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600">
+                      {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  {onInsights.length > 0 ? (
-                    <div className="space-y-2">
-                      {onInsights.map((ins, i) => (
-                        <div key={i} className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-slate-700">
-                          {ins.content || ins.text || JSON.stringify(ins)}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400">กดปุ่ม &ldquo;ดึง Insights&rdquo; เพื่อให้ AI สรุปประเด็นสำคัญจากเอกสาร</p>
-                  )}
+                  <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:underline px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl whitespace-nowrap">
+                    รับฟรี <ExternalLink className="w-3 h-3" />
+                  </a>
                 </div>
               </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* API Key configuration banner */}
-      <div className="card mb-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-        <div className="flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
-          <div className="flex items-start gap-3">
-            <div className="p-3 bg-blue-100 rounded-2xl text-blue-700">
-              <Key className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="font-bold text-slate-900 text-sm">🔑 เปิดใช้งานความสามารถวิเคราะห์กฎหมายได้จริง (Google Gemini API)</h4>
-              <p className="text-xs text-slate-600 mt-1">
-                กรอก Gemini API Key เพื่อประมวลผลผ่านโมเดลจริง หากเว้นว่างไว้ ระบบจะรันในโหมด EHS Local Rules Engine 
-              </p>
             </div>
           </div>
-          <div className="relative w-full md:w-80 flex gap-2">
-            <div className="relative flex-1">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => handleSaveApiKey(e.target.value)}
-                placeholder="กรอก Gemini API Key ที่นี่..."
-                className="w-full pl-3 pr-10 py-2.5 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-400 bg-white text-xs outline-none transition"
-              />
-              <button 
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
-              >
-                {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <a 
-              href="https://aistudio.google.com/" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="bg-blue-600 text-white font-bold text-xs rounded-xl px-3 py-2.5 hover:bg-blue-700 transition flex items-center justify-center flex-shrink-0"
-            >
-              รับ Key ฟรี ↗
-            </a>
-          </div>
-        </div>
-      </div>
 
-      <div className="grid gap-8 lg:grid-cols-[1.8fr_1.2fr] items-start">
-        {/* Left Column: Form & Tools */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-[32px] border border-slate-200/70 shadow-xl overflow-hidden">
-            {/* Tab Selectors */}
-            <div className="flex bg-slate-50 border-b border-slate-200/80 p-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setInputMode('text')}
-                className={`flex items-center gap-2 rounded-2xl px-5 py-3 text-xs font-bold transition-all ${
-                  inputMode === 'text'
-                    ? 'bg-white text-slate-900 shadow-md shadow-slate-900/5'
-                    : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
-                }`}
-              >
-                <Clipboard className="w-4 h-4 text-slate-500" />
-                วางข้อความกฎหมาย
-              </button>
-              <button
-                type="button"
-                onClick={() => setInputMode('file')}
-                className={`flex items-center gap-2 rounded-2xl px-5 py-3 text-xs font-bold transition-all ${
-                  inputMode === 'file'
-                    ? 'bg-white text-slate-900 shadow-md shadow-slate-900/5'
-                    : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
-                }`}
-              >
-                <Upload className="w-4 h-4 text-slate-500" />
-                แนบไฟล์ (PDF/TXT)
-              </button>
-              <button
-                type="button"
-                onClick={() => setInputMode('url')}
-                className={`flex items-center gap-2 rounded-2xl px-5 py-3 text-xs font-bold transition-all ${
-                  inputMode === 'url'
-                    ? 'bg-white text-slate-900 shadow-md shadow-slate-900/5'
-                    : 'text-slate-500 hover:bg-white/50 hover:text-slate-900'
-                }`}
-              >
-                <Globe className="w-4 h-4 text-slate-500" />
-                ดึงจากราชกิจจา / ลิงก์รัฐ
-              </button>
+          {/* Input card */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* Tabs */}
+            <div className="flex bg-slate-50 border-b border-slate-100 p-1.5 gap-1">
+              {INPUT_TABS.map(tab => {
+                const Icon = tab.icon
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setInputMode(tab.key)}
+                    className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all ${inputMode === tab.key ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-700 hover:bg-white/60'}`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {tab.label}
+                  </button>
+                )
+              })}
             </div>
 
-            {/* Input Form Body */}
-            <div className="p-6 sm:p-8 space-y-6">
+            <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">ชื่อกฎหมายอย่างเป็นทางการ</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">ชื่อกฎหมาย</label>
                 <input
                   type="text"
                   value={lawTitle}
-                  onChange={(e) => setLawTitle(e.target.value)}
-                  placeholder="ตัวอย่าง: พระราชบัญญัติความปลอดภัย อาชีวอนามัย และสภาพแวดล้อมในการทำงาน พ.ศ. ๒๕๕๔"
-                  className="input-field rounded-2xl border-slate-200"
+                  onChange={e => setLawTitle(e.target.value)}
+                  placeholder="พระราชบัญญัติ / กฎกระทรวง / ประกาศ..."
+                  className="input-field text-sm"
                 />
               </div>
 
               {inputMode === 'text' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">ข้อความหรือบทสรุปข้อบังคับ</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">เนื้อหากฎหมาย</label>
                   <textarea
                     value={lawText}
-                    onChange={(e) => setLawText(e.target.value)}
-                    placeholder="วางเนื้อหากฎหมายหรือคำอธิบายข้อบังคับเพื่อส่งวิเคราะห์..."
-                    rows={8}
-                    className="input-field rounded-2xl border-slate-200"
+                    onChange={e => setLawText(e.target.value)}
+                    placeholder="วางเนื้อหาหรือบทสรุปของกฎหมายที่ต้องการวิเคราะห์..."
+                    rows={9}
+                    className="input-field text-sm resize-none"
                   />
                 </div>
               )}
 
               {inputMode === 'file' && (
-                <div className="space-y-4">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">อัปโหลดไฟล์เอกสารข้อความ (.txt) หรือเอกสารกฎหมาย (.pdf)</label>
-                  <div className="border-2 border-dashed border-slate-200 hover:border-slate-350 rounded-[24px] p-8 text-center bg-slate-50/50 cursor-pointer relative group transition-all duration-300">
-                    <input
-                      type="file"
-                      accept=".txt,.pdf"
-                      onChange={handleFileUpload}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                    <Upload className="w-10 h-10 text-slate-400 mx-auto mb-3 group-hover:scale-110 transition duration-300" />
-                    <p className="text-sm font-bold text-slate-700">ลากและวางไฟล์ PDF หรือ TXT หรือคลิกเพื่อเลือกไฟล์</p>
-                    <p className="text-xs text-slate-450 mt-1">ดึงตัวอักษรภาษาไทยจาก PDF สแกน/ดิจิทัล ได้โดยตรงผ่านระบบ OCR/Text Extraction</p>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">อัปโหลดไฟล์</label>
+                  <div className="relative border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-xl p-8 text-center bg-slate-50 transition-colors cursor-pointer group">
+                    <input type="file" accept=".txt,.pdf" onChange={handleFile} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                    <Upload className="w-8 h-8 text-slate-300 group-hover:text-indigo-400 mx-auto mb-2 transition-colors" />
+                    <p className="text-sm font-semibold text-slate-600">ลากไฟล์มาวาง หรือคลิกเพื่อเลือก</p>
+                    <p className="text-xs text-slate-400 mt-1">รองรับ PDF และ TXT</p>
                   </div>
-                  
                   {attachedFile && (
-                    <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl animate-fadeIn">
-                      <FileText className="w-6 h-6 text-indigo-500 animate-pulse" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-slate-800 truncate">{attachedFile.name}</p>
-                        <p className="text-xs text-slate-550">{attachedFile.size} • {attachedFile.type || 'ประเภทระบุไม่ได้'}</p>
-                      </div>
-                      <span className="badge bg-emerald-100 text-emerald-800 text-[10px] py-1 px-2.5 rounded-full border border-emerald-200 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> ดึงข้อมูลสำเร็จ
-                      </span>
+                    <div className="flex items-center gap-3 mt-2 p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+                      <FileText className="w-5 h-5 text-indigo-500 flex-shrink-0" />
+                      <p className="text-sm font-semibold text-slate-800 truncate flex-1">{attachedFile.name}</p>
+                      <span className="text-xs text-slate-500">{attachedFile.size}</span>
                     </div>
                   )}
                 </div>
               )}
 
               {inputMode === 'url' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">ระบุลิงก์นำเข้าข้อมูล (ราชกิจจานุเบกษา หรือ กรมสวัสดิการฯ OSH)</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="url"
-                        value={importUrl}
-                        onChange={(e) => setImportUrl(e.target.value)}
-                        placeholder="ตัวอย่าง: https://osh.labour.go.th/ความคืบหน้าของกฎหมาย หรือ ลิงก์ PDF ราชกิจจา..."
-                        className="input-field rounded-2xl border-slate-200 flex-1"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleUrlFetch}
-                        disabled={loading}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-6 py-3 font-semibold transition text-sm flex-shrink-0"
-                      >
-                        นำเข้าข้อมูล
-                      </button>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-indigo-50 border border-indigo-150 p-4 text-indigo-850 text-xs leading-relaxed flex gap-2">
-                    <Globe className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                    <span>
-                      ระบุลิงก์จากเว็บไซต์ **กองความปลอดภัยแรงงาน (osh.labour.go.th)** หรือ **ราชกิจจานุเบกษา** เพื่อนำมาวิเคราะห์ด้วย AI ระบบจะจับคู่นำเสนอข้อมูลกฎหมายสเปกจริงพร้อมประเมินความสอดคล้องอย่างสมบูรณ์แบบ
-                    </span>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">URL ราชกิจจานุเบกษา / กรมสวัสดิการฯ</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={importUrl}
+                      onChange={e => setImportUrl(e.target.value)}
+                      placeholder="https://ratchakitcha.soc.go.th/..."
+                      className="input-field text-sm flex-1"
+                    />
+                    <button onClick={handleUrlFetch} disabled={loading} className="btn-primary px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700">
+                      นำเข้า
+                    </button>
                   </div>
                 </div>
               )}
 
-              {/* Action Trigger */}
               <button
-                type="button"
                 onClick={handleAnalyze}
-                disabled={loading || !lawText}
-                className="btn-primary w-full bg-slate-900 hover:bg-slate-800 text-white rounded-2xl py-4 flex items-center justify-center gap-2 shadow-lg shadow-slate-950/10 transition-all font-semibold disabled:bg-slate-200 disabled:text-slate-450 disabled:shadow-none"
+                disabled={loading || !lawText.trim()}
+                className="w-full flex items-center justify-center gap-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-indigo-500/20 disabled:shadow-none"
               >
                 {loading ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-slate-500 border-t-white rounded-full animate-spin" />
-                    <span>กำลังสรุปและแยกความต้องการผ่าน AI ...</span>
-                  </>
+                  <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> กำลังวิเคราะห์...</>
                 ) : (
-                  <>
-                    <Sparkles className="w-5 h-5" />
-                    <span>เริ่มสรุปวิเคราะห์ด้วยระบบ AI ({apiKey ? 'โมเดลจริง' : 'โหมดจำลอง'})</span>
-                  </>
+                  <><Sparkles className="w-5 h-5" /> วิเคราะห์กฎหมาย</>
                 )}
               </button>
             </div>
           </div>
-        </div>
 
-        {/* Right Column: Information Cards */}
-        <div className="space-y-6">
-          <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-xl relative overflow-hidden">
-            <div className="absolute right-0 bottom-0 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl" />
-            <h3 className="text-xl font-bold flex items-center gap-2">
-              <Scale className="w-5 h-5 text-indigo-400" />
-              เกณฑ์รอบการทบทวน
-            </h3>
-            <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-              ตามหลักการประเมินสอดคล้อง (Compliance Assessment) ของ EHS กฎหมายแต่ละประเภทมีลักษณะการปรับปรุงและเปลี่ยนแปลงความถี่แตกต่างกันไป AI จะวิเคราะห์ประเภทกฎหมายและเสนอแนะรอบการตรวจทบทวนให้อัตโนมัติดังนี้:
-            </p>
-            <div className="mt-4 space-y-2 text-xs">
-              <div className="flex justify-between items-center p-2 rounded-xl bg-white/5 border border-white/5">
-                <span className="font-bold">พระราชบัญญัติ (พรบ.)</span>
-                <span className="bg-indigo-500/20 text-indigo-305 px-2.5 py-1 rounded-full font-semibold border border-indigo-500/20">ทุก 12 เดือน (1 ปี)</span>
-              </div>
-              <div className="flex justify-between items-center p-2 rounded-xl bg-white/5 border border-white/5">
-                <span className="font-bold">พระราชกฤษฎีกา (พรฎ.)</span>
-                <span className="bg-purple-500/20 text-purple-305 px-2.5 py-1 rounded-full font-semibold border border-purple-500/20">ทุก 6 เดือน</span>
-              </div>
-              <div className="flex justify-between items-center p-2 rounded-xl bg-white/5 border border-white/5">
-                <span className="font-bold">กฎกระทรวง</span>
-                <span className="bg-sky-500/20 text-sky-305 px-2.5 py-1 rounded-full font-semibold border border-sky-500/20">ทุก 6 เดือน</span>
-              </div>
-              <div className="flex justify-between items-center p-2 rounded-xl bg-white/5 border border-white/5">
-                <span className="font-bold">ประกาศกระทรวง / กรม</span>
-                <span className="bg-orange-500/20 text-orange-305 px-2.5 py-1 rounded-full font-semibold border border-orange-500/20">ทุก 3 เดือน</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 shadow-sm space-y-4">
-            <h4 className="font-bold text-slate-800 text-sm">8 หมวดหมู่ความปลอดภัยในการทำงาน</h4>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              เราจำแนกกฎหมายเข้าสู่หมวดหมู่ต่างๆ เพื่อให้ง่ายต่อการแบ่งการทำงานและการประเมินความสอดคล้องตามหน่วยงานที่เกี่ยวข้อง
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-600">
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><Shield className="w-3.5 h-3.5 text-slate-500" />ความปลอดภัยทั่วไป</div>
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><Cog className="w-3.5 h-3.5 text-teal-500" />เครื่องจักร/อุปกรณ์</div>
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><Flame className="w-3.5 h-3.5 text-amber-500" />ไฟฟ้าและอัคคีภัย</div>
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><FlaskConical className="w-3.5 h-3.5 text-red-500" />สารเคมี/วัตถุอันตราย</div>
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><TreePine className="w-3.5 h-3.5 text-green-500" />สิ่งแวดล้อม EHS</div>
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><Mountain className="w-3.5 h-3.5 text-rose-500" />ที่สูง/ที่อับอากาศ</div>
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><HardHat className="w-3.5 h-3.5 text-orange-500" />การก่อสร้าง</div>
-              <div className="flex items-center gap-1.5 p-2 bg-slate-50 rounded-xl"><Users className="w-3.5 h-3.5 text-cyan-500" />สวัสดิการ/แรงงาน</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Results Section */}
-      {summary && (
-        <div className="mt-8 space-y-8 animate-fadeIn">
-          {/* Classification Result Badges */}
-          <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 sm:p-8 shadow-xl">
-            <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              ผลการวิเคราะห์และระบุหมวดหมู่โดย AI
-            </h3>
-            <div className="mb-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={handleSaveToRegistry}
-                disabled={savingToRegistry}
-                className="btn-success"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {savingToRegistry ? 'กำลังบันทึกเข้า Supabase...' : 'บันทึกผล AI เข้าทะเบียนกฎหมาย'}
-              </button>
-              <Link href="/legal" className="btn-secondary">
-                ไปที่ทะเบียนกฎหมาย <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Type Badge Card */}
-              <div className="p-5 rounded-[24px] bg-slate-50/50 border border-slate-100 flex flex-col justify-between">
-                <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">ประเภทเอกสารกฎหมาย</span>
-                <div className="my-4">
-                  <span className={`badge text-xs py-2 px-4 rounded-full inline-block ${getLawTypeBadgeColor(summary.lawType)}`}>
-                    {summary.lawType}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 leading-normal">
-                  จำแนกจากโครงสร้างหัวเรื่องและระดับของประกาศพระราชกฤษฎีกา/ประกาศกระทรวง
-                </p>
-              </div>
-
-              {/* Category Card */}
-              <div className="p-5 rounded-[24px] bg-slate-50/50 border border-slate-100 flex flex-col justify-between">
-                <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">หมวดหมู่ความปลอดภัย</span>
-                <div className="my-4">
-                  <span className={`badge text-xs py-2 px-4 rounded-full inline-block ${getCategoryClass(summary.safetyCategory)}`}>
-                    {summary.safetyCategory}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 leading-normal">
-                  จำแนกตามมาตรฐานความปลอดภัย อาชีวอนามัย และสิ่งแวดล้อมในการปฏิบัติงาน EHS
-                </p>
-              </div>
-
-              {/* Review Frequency Card */}
-              <div className="p-5 rounded-[24px] bg-slate-50/50 border border-slate-100 flex flex-col justify-between">
-                <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">รอบการตรวจทบทวนความสอดคล้อง</span>
-                <div className="my-4 flex items-center gap-2 text-indigo-700 font-bold text-lg">
-                  <Clock className="w-5 h-5 text-indigo-500" />
-                  <span>{summary.reviewFrequency}</span>
-                </div>
-                <p className="text-xs text-slate-500 leading-normal">
-                  รอบทบทวนที่เหมาะสมแนะนำอิงตามพระราชบัญญัติและประเภทการปรับปรุงของกฎหมาย
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Key Points Card */}
-            <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 sm:p-8 shadow-sm">
-              <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">สรุปประเด็นหลักสำคัญ</p>
-              <div className="space-y-3">
-                {summary.keyPoints.length > 0 ? (
-                  summary.keyPoints.map((point, idx) => (
-                    <div key={idx} className="rounded-2xl bg-indigo-50/50 border border-indigo-100/50 p-4 text-xs sm:text-sm text-slate-800 leading-relaxed relative flex gap-3">
-                      <span className="h-5 w-5 bg-indigo-600 text-white rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span>{point}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-400 py-4 text-center">ไม่มีข้อมูลสรุปประเด็นหลักสำคัญ</p>
-                )}
-              </div>
-            </div>
-
-            {/* Action Items Card */}
-            <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 sm:p-8 shadow-sm">
-              <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-3">สิ่งที่ต้องดำเนินการตามกฎหมาย</p>
-              <div className="space-y-3">
-                {summary.actionItems.length > 0 ? (
-                  summary.actionItems.map((item, idx) => (
-                    <div key={idx} className="rounded-2xl bg-amber-50/50 border border-amber-100/50 p-4 text-xs sm:text-sm text-slate-800 leading-relaxed flex gap-3">
-                      <span className="h-5 w-5 bg-amber-600 text-white rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span>{item}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-400 py-4 text-center">ไม่มีสิ่งต้องการที่ตรวจวัดได้</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Penalties & Fines */}
-            <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 sm:p-8 shadow-sm">
-              <h4 className="text-xs font-bold text-red-600 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4 text-red-500" /> อัตราโทษปรับและบทลงโทษ
-              </h4>
-              {summary.penalties.length > 0 ? (
-                <ul className="space-y-2">
-                  {summary.penalties.map((penalty, idx) => (
-                    <li key={idx} className="text-xs sm:text-sm bg-red-50/50 border border-red-100/50 text-slate-800 p-3 rounded-2xl font-semibold flex justify-between items-center">
-                      <span>{penalty}</span>
-                      <span className="badge badge-critical text-[10px]">มีอัตราโทษ</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="p-4 bg-emerald-50 text-emerald-800 rounded-2xl text-xs font-bold text-center">
-                  ไม่พบข้อกำหนดบทลงโทษในร่างกฎหมายเบื้องต้นนี้
-                </div>
-              )}
-            </div>
-
-            {/* Affected & Effectiveness */}
-            <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 sm:p-8 shadow-sm space-y-4">
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">ขอบเขตผู้ได้รับผลกระทบและการบังคับใช้</h4>
-              <div>
-                <p className="text-[10px] font-bold text-slate-450 uppercase mb-2">กลุ่มผู้เกี่ยวข้องโดยตรง:</p>
-                <div className="flex flex-wrap gap-2">
-                  {summary.affectedParties.map((party, idx) => (
-                    <span key={idx} className="badge bg-slate-100 text-slate-800 text-[11px] font-semibold py-1 px-3 rounded-full border border-slate-200">
-                      {party}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="pt-2">
-                <p className="text-[10px] font-bold text-slate-450 uppercase mb-1">วันที่ประกาศ / เริ่มบังคับใช้ทางราชการ:</p>
-                <p className="text-sm font-bold text-slate-800 bg-slate-50 p-2.5 rounded-xl border border-slate-100 inline-block">
-                  {summary.effectiveDate || 'มีผลบังคับใช้ทันทีเมื่อพ้นกำหนดตามราชกิจจานุเบกษา'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Compliance Action Plan Checklist */}
-          {checklist && (
-            <div className="bg-white rounded-[32px] border border-slate-200/70 p-6 sm:p-8 shadow-xl">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-900">
-                    แผนงานมอบหมายเพื่อความสอดคล้อง (Compliance Action Plan)
+          {/* ── Results ──────────────────────────────────────────────────── */}
+          {result && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Classification chips */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" /> ผลการวิเคราะห์
                   </h3>
-                  <p className="text-xs text-slate-550 mt-1">
-                    Checklist แนะนำการดำเนินการที่เกี่ยวข้องกับกฎหมายใหม่นี้ คุณสามารถแก้ไขและนำเข้ารายงานงานต่อไป
-                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={copyResult} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 hover:border-slate-400 px-3 py-1.5 rounded-xl transition-all">
+                      <Copy className="w-3.5 h-3.5" /> {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+                    </button>
+                    <button onClick={handleSave} disabled={saving} className="btn-success text-xs px-3 py-1.5">
+                      {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <BookOpen className="w-3.5 h-3.5" />}
+                      {saving ? 'กำลังบันทึก...' : 'บันทึกเข้าทะเบียน'}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    toast.success('บันทึกแผนมอบหมายและบันทึกความสอดคล้องสำเร็จ!')
-                    router.push('/tasks')
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl px-5 py-2.5 text-xs font-bold transition shadow-md shadow-emerald-600/10 flex items-center gap-1.5 self-start sm:self-center"
-                >
-                  <CheckCircle2 className="w-4 h-4" /> บันทึกและมอบหมายแผนปฏิบัติการ
-                </button>
-              </div>
 
-              <div className="divide-y divide-slate-100">
-                {checklist.map((task, idx) => (
-                  <div key={idx} className="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <span className="h-6 w-6 rounded-full bg-slate-100 font-bold text-slate-700 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
-                        {idx + 1}
-                      </span>
-                      <div>
-                        <p className="font-bold text-slate-900 text-sm sm:text-base">{task.item}</p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          ผู้รับผิดชอบที่แนะนำ: <span className="font-semibold text-slate-700">{task.responsible}</span>
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2.5 self-end sm:self-center text-xs">
-                      <span className="bg-slate-50 border border-slate-200 text-slate-600 font-semibold px-3 py-1.5 rounded-xl">
-                        กำหนดส่ง: {task.deadline}
-                      </span>
-                      <span className="status-pending px-3 py-1.5 rounded-xl text-[10px] font-bold">
-                        รอมอบหมาย
-                      </span>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {result.lawType && (
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${lawTypeColors[result.lawType] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                      {result.lawType}
+                    </span>
+                  )}
+                  {result.safetyCategory && (
+                    <span className="text-xs font-bold px-3 py-1 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                      {result.safetyCategory}
+                    </span>
+                  )}
+                  {result.reviewFrequency && (
+                    <span className="text-xs font-semibold px-3 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> {result.reviewFrequency}
+                    </span>
+                  )}
+                </div>
+
+                {/* Summary */}
+                {result.summary && (
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 mb-4">
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">บทสรุป</p>
+                    <p className="text-sm text-slate-700 leading-relaxed">{result.summary}</p>
+                  </div>
+                )}
+
+                {/* Key Points */}
+                {result.keyPoints?.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">ประเด็นสำคัญ</p>
+                    <div className="space-y-2">
+                      {result.keyPoints.map((point, i) => (
+                        <div key={i} className="flex items-start gap-3 bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
+                          <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                            {i + 1}
+                          </span>
+                          <p className="text-sm text-slate-700 leading-relaxed">{point}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
+                )}
+              </div>
+
+              {/* Save CTA */}
+              <div className="flex gap-3">
+                <button onClick={handleSave} disabled={saving} className="flex-1 btn-success justify-center py-3">
+                  {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <BookOpen className="w-4 h-4" />}
+                  {saving ? 'กำลังบันทึก...' : 'บันทึกเข้าทะเบียนกฎหมาย'}
+                </button>
+                <Link href="/legal" className="btn-secondary px-5 py-3">
+                  ดูทะเบียน <ArrowRight className="w-4 h-4" />
+                </Link>
               </div>
             </div>
           )}
+
+          {/* ── Open Notebook ─────────────────────────────────────────────── */}
+          <div className="rounded-2xl border border-violet-200 bg-violet-50/40 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setOnOpen(v => !v)}
+              className="w-full flex items-center gap-3 px-5 py-4 hover:bg-violet-100/50 transition-colors"
+            >
+              <div className="p-2 bg-violet-600 rounded-xl shadow flex-shrink-0">
+                <BookMarked className="w-4 h-4 text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="font-bold text-violet-900 text-sm">Open Notebook — RAG Chat</p>
+                <p className="text-xs text-violet-600 mt-0.5">สร้าง Knowledge Base จากกฎหมายนี้ แล้ว Chat ถาม-ตอบกับ AI หลายโมเดล</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {onConnected === true && <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1"><Wifi className="w-3.5 h-3.5" /> เชื่อมต่อแล้ว</span>}
+                {onConnected === false && <span className="text-[11px] font-semibold text-red-500 flex items-center gap-1"><WifiOff className="w-3.5 h-3.5" /> ไม่ได้เชื่อมต่อ</span>}
+                {onOpen ? <ChevronUp className="w-4 h-4 text-violet-500" /> : <ChevronDown className="w-4 h-4 text-violet-500" />}
+              </div>
+            </button>
+
+            {onOpen && (
+              <div className="border-t border-violet-200 p-5 space-y-4">
+                <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
+                  <div>
+                    <label className="block text-xs font-semibold text-violet-700 mb-1">Open Notebook URL</label>
+                    <input type="url" value={onUrl} onChange={e => setOnUrl(e.target.value)} placeholder="http://localhost:5055" className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-violet-700 mb-1">Password</label>
+                    <input type="password" value={onPassword} onChange={e => setOnPassword(e.target.value)} placeholder="ไม่บังคับ" className="input-field text-sm w-40" />
+                  </div>
+                  <button onClick={handleOnCheck} disabled={onChecking} className="btn-primary bg-violet-600 hover:bg-violet-700 py-2.5 px-3">
+                    {onChecking ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {!onSessionId ? (
+                  <button onClick={handleOnSetup} disabled={onSetupLoading || (!lawText && !importUrl)} className="w-full btn-primary bg-violet-700 hover:bg-violet-800 disabled:opacity-50 justify-center">
+                    {onSetupLoading ? <><RefreshCw className="w-4 h-4 animate-spin" /> กำลังสร้าง...</> : <><BookMarked className="w-4 h-4" /> สร้าง Notebook และเริ่ม Chat</>}
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      <span className="bg-violet-100 text-violet-700 px-2 py-1 rounded-full font-mono">Notebook: {onNotebookId?.slice(0, 12)}…</span>
+                      <button onClick={() => { setOnSessionId(null); setOnMessages([]); setOnInsights([]) }} className="ml-auto text-slate-400 hover:text-red-500">รีเซ็ต</button>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 flex flex-col" style={{ height: 320 }}>
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50 rounded-t-xl">
+                        <MessageSquare className="w-3.5 h-3.5 text-violet-500" />
+                        <span className="text-xs font-semibold text-slate-600">Chat กับ Open Notebook</span>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {onMessages.map((m, i) => (
+                          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-violet-600 text-white rounded-br-sm' : 'bg-slate-100 text-slate-800 rounded-bl-sm'}`}>
+                              {m.content}
+                            </div>
+                          </div>
+                        ))}
+                        {onSending && <div className="flex justify-start"><div className="bg-slate-100 rounded-2xl rounded-bl-sm px-4 py-2.5 flex gap-1"><span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]" /><span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]" /><span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" /></div></div>}
+                        <div ref={chatEndRef} />
+                      </div>
+                      <form onSubmit={e => { e.preventDefault(); handleOnSend() }} className="flex gap-2 p-2 border-t border-slate-100">
+                        <input type="text" value={onInput} onChange={e => setOnInput(e.target.value)} placeholder="ถามเกี่ยวกับกฎหมายนี้..." className="input-field py-2 text-sm flex-1" disabled={onSending} />
+                        <button type="submit" disabled={onSending || !onInput.trim()} className="p-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl">
+                          <Send className="w-4 h-4" />
+                        </button>
+                      </form>
+                    </div>
+                    <button onClick={handleOnInsights} disabled={onInsightLoading} className="flex items-center gap-1.5 text-xs text-violet-600 hover:underline">
+                      <Lightbulb className="w-3.5 h-3.5" />
+                      {onInsightLoading ? 'กำลังโหลด Insights...' : 'ดึง AI Insights จากเอกสาร'}
+                    </button>
+                    {onInsights.map((ins, i) => (
+                      <div key={i} className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-slate-700">
+                        {ins.content || ins.text || JSON.stringify(ins)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      )}
+
+        {/* ── RIGHT: Reference sidebar ──────────────────────────────────── */}
+        <div className="space-y-4 lg:sticky lg:top-20">
+          {/* Review frequency guide */}
+          <div className="bg-gradient-to-br from-slate-900 to-indigo-950 rounded-2xl p-5 text-white shadow-xl">
+            <h3 className="font-bold flex items-center gap-2 mb-4">
+              <Clock className="w-4 h-4 text-indigo-300" /> รอบการทบทวนแนะนำ
+            </h3>
+            {[
+              { type: 'พระราชบัญญัติ', period: 'ทุก 12 เดือน', color: 'indigo' },
+              { type: 'พระราชกฤษฎีกา', period: 'ทุก 6 เดือน', color: 'violet' },
+              { type: 'กฎกระทรวง', period: 'ทุก 6 เดือน', color: 'blue' },
+              { type: 'ประกาศกระทรวง', period: 'ทุก 3 เดือน', color: 'cyan' },
+              { type: 'ประกาศกรม', period: 'ทุก 3 เดือน', color: 'teal' },
+            ].map(row => (
+              <div key={row.type} className="flex items-center justify-between py-2 border-b border-white/10 last:border-0 text-xs">
+                <span className="text-slate-300">{row.type}</span>
+                <span className="bg-white/10 border border-white/10 text-white px-2 py-0.5 rounded-full font-semibold">{row.period}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Category grid */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <h4 className="font-bold text-slate-800 text-sm mb-3">8 หมวดหมู่ความปลอดภัย EHS</h4>
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              {[
+                { cat: 'ความปลอดภัยทั่วไป', color: '#3B82F6' },
+                { cat: 'เครื่องจักร / อุปกรณ์', color: '#F59E0B' },
+                { cat: 'ไฟฟ้าและอัคคีภัย', color: '#EF4444' },
+                { cat: 'สารเคมีอันตราย', color: '#8B5CF6' },
+                { cat: 'สิ่งแวดล้อม', color: '#10B981' },
+                { cat: 'ที่สูง / อับอากาศ', color: '#F97316' },
+                { cat: 'การก่อสร้าง', color: '#6B7280' },
+                { cat: 'สวัสดิการแรงงาน', color: '#EC4899' },
+              ].map(({ cat, color }) => (
+                <div key={cat} className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1.5 font-medium text-slate-600">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                  {cat}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tips */}
+          <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-xs text-amber-800 space-y-2">
+            <p className="font-bold flex items-center gap-1.5"><Lightbulb className="w-3.5 h-3.5" /> เคล็ดลับ</p>
+            <p>ใส่ Gemini API Key เพื่อรับการวิเคราะห์เชิงลึกจากโมเดล AI จริง ไม่มี Key ระบบยังทำงานได้ด้วย Local Rules Engine</p>
+            <p>ใช้ <strong>Open Notebook</strong> สำหรับการถามตอบเชิงลึกและเปรียบเทียบกฎหมายหลายฉบับพร้อมกัน</p>
+          </div>
+        </div>
+      </div>
     </Layout>
   )
 }

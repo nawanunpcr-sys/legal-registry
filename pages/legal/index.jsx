@@ -2,58 +2,164 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/router'
 import Layout from '../../components/Layout'
 import {
-  BookOpen, ChevronDown, ChevronRight, Search, Plus,
-  AlertCircle, Download, Trash2, FileText, Filter,
-  Calendar, X, RefreshCw, CheckCircle2, XCircle, Clock,
-  TrendingUp, BarChart3, Layers
+  BookOpen, ChevronDown, ChevronRight, Search, Plus, AlertCircle,
+  Download, Trash2, Filter, Calendar, X, RefreshCw,
+  CheckCircle2, XCircle, Clock, ExternalLink, Layers,
+  Scale, FileText, BookMarked, Building2, ScrollText,
+  Gavel, ArrowUpRight, Sparkles, Database,
 } from 'lucide-react'
 import { getLaws, getCategories } from '../../lib/supabase'
-import { isCompliantStatus, isNonCompliantStatus, normalizeComplianceStatus } from '../../lib/statusUtils'
+import { normalizeComplianceStatus } from '../../lib/statusUtils'
 import { exportToCsv, exportToExcel } from '../../lib/exportUtils'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
+import { HIERARCHY_ORDER } from '../../lib/royalGazette'
 
-const CURRENT_YEAR_BE = new Date().getFullYear() + 543
-
-function buildYearOptions() {
-  const years = []
-  for (let y = CURRENT_YEAR_BE; y >= CURRENT_YEAR_BE - 30; y--) {
-    years.push(y.toString())
-  }
-  return years
+// ─── Legal hierarchy metadata ────────────────────────────────────────────────
+const HIERARCHY_META = {
+  'พระราชบัญญัติ': {
+    abbr: 'พ.ร.บ.',
+    icon: Gavel,
+    color: 'indigo',
+    bg: 'bg-indigo-600',
+    light: 'bg-indigo-50',
+    border: 'border-indigo-200',
+    text: 'text-indigo-700',
+    badge: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    description: 'กฎหมายสูงสุดของระดับพระราชบัญญัติ ออกโดยรัฐสภา',
+    level: 1,
+  },
+  'พระราชกฤษฎีกา': {
+    abbr: 'พ.ร.ฎ.',
+    icon: ScrollText,
+    color: 'violet',
+    bg: 'bg-violet-600',
+    light: 'bg-violet-50',
+    border: 'border-violet-200',
+    text: 'text-violet-700',
+    badge: 'bg-violet-100 text-violet-800 border-violet-200',
+    description: 'กฎหมายลำดับรองจาก พ.ร.บ. ออกโดยพระมหากษัตริย์ตามคำแนะนำ ครม.',
+    level: 2,
+  },
+  'กฎกระทรวง': {
+    abbr: 'กก.',
+    icon: Building2,
+    color: 'blue',
+    bg: 'bg-blue-600',
+    light: 'bg-blue-50',
+    border: 'border-blue-200',
+    text: 'text-blue-700',
+    badge: 'bg-blue-100 text-blue-800 border-blue-200',
+    description: 'ออกโดยรัฐมนตรีตามอำนาจที่ได้รับมอบจาก พ.ร.บ.',
+    level: 3,
+  },
+  'ประกาศกระทรวง': {
+    abbr: 'ปก.',
+    icon: FileText,
+    color: 'cyan',
+    bg: 'bg-cyan-600',
+    light: 'bg-cyan-50',
+    border: 'border-cyan-200',
+    text: 'text-cyan-700',
+    badge: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+    description: 'ออกโดยกระทรวง เพื่อกำหนดรายละเอียดการปฏิบัติตามกฎกระทรวง',
+    level: 4,
+  },
+  'ประกาศกรม': {
+    abbr: 'ปกรม.',
+    icon: BookMarked,
+    color: 'teal',
+    bg: 'bg-teal-600',
+    light: 'bg-teal-50',
+    border: 'border-teal-200',
+    text: 'text-teal-700',
+    badge: 'bg-teal-100 text-teal-800 border-teal-200',
+    description: 'ออกโดยกรม เพื่อกำหนดรายละเอียดปลีกย่อยในระดับปฏิบัติ',
+    level: 5,
+  },
+  'ระเบียบ': {
+    abbr: 'ระเบียบ',
+    icon: Layers,
+    color: 'amber',
+    bg: 'bg-amber-600',
+    light: 'bg-amber-50',
+    border: 'border-amber-200',
+    text: 'text-amber-700',
+    badge: 'bg-amber-100 text-amber-800 border-amber-200',
+    description: 'ระเบียบปฏิบัติของหน่วยงานราชการ',
+    level: 6,
+  },
+  'คำสั่ง': {
+    abbr: 'คสก.',
+    icon: Scale,
+    color: 'rose',
+    bg: 'bg-rose-600',
+    light: 'bg-rose-50',
+    border: 'border-rose-200',
+    text: 'text-rose-700',
+    badge: 'bg-rose-100 text-rose-800 border-rose-200',
+    description: 'คำสั่งเฉพาะของหน่วยงาน มีผลบังคับใช้ภายในหน่วยงาน',
+    level: 7,
+  },
 }
 
-export default function LegalRegistry() {
+const DEFAULT_META = {
+  abbr: 'กม.',
+  icon: BookOpen,
+  color: 'slate',
+  bg: 'bg-slate-600',
+  light: 'bg-slate-50',
+  border: 'border-slate-200',
+  text: 'text-slate-700',
+  badge: 'bg-slate-100 text-slate-800 border-slate-200',
+  description: 'กฎหมายที่ไม่ระบุประเภท',
+  level: 99,
+}
+
+// Map DB law_type → display lawType Thai
+function getLawTypeDisplay(law) {
+  if (law.law_type) {
+    const map = {
+      law: 'พระราชบัญญัติ',
+      royal_decree: 'พระราชกฤษฎีกา',
+      ministerial_regulation: 'กฎกระทรวง',
+      ministerial_announcement: 'ประกาศกระทรวง',
+      departmental_announcement: 'ประกาศกรม',
+      regulation: 'ระเบียบ',
+      order: 'คำสั่ง',
+      announcement: 'ประกาศกระทรวง',
+    }
+    if (map[law.law_type]) return map[law.law_type]
+  }
+  // Infer from title
+  const t = law.title || ''
+  for (const type of HIERARCHY_ORDER) {
+    if (t.includes(type)) return type
+  }
+  return 'ประกาศกระทรวง'
+}
+
+export default function LegalDashboard() {
   const router = useRouter()
-  const [categories, setCategories] = useState([])
   const [laws, setLaws] = useState([])
-  const [expandedCategory, setExpandedCategory] = useState(null)
-  const [expandedYear, setExpandedYear] = useState(null)
-  const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState('all')  // all | compliant | non_compliant | pending
-  const [yearFrom, setYearFrom] = useState('')
-  const [yearTo, setYearTo] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [seeding, setSeeding] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [expandedType, setExpandedType] = useState(null)
   const [showFilters, setShowFilters] = useState(false)
 
-  // Pick up ?search= from header global search
   useEffect(() => {
-    if (router.query.search) {
-      setSearchTerm(router.query.search)
-    }
+    if (router.query.search) setSearchTerm(router.query.search)
   }, [router.query.search])
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [catRes, lawsRes] = await Promise.all([getCategories(), getLaws()])
-      setCategories(catRes.data || [])
-      setLaws(lawsRes.data || [])
+      const res = await getLaws()
+      setLaws(res.data || [])
     } catch {
       toast.error('เกิดข้อผิดพลาดในการโหลดข้อมูล')
     } finally {
@@ -61,19 +167,22 @@ export default function LegalRegistry() {
     }
   }
 
-  const extractYearBE = (law) => {
-    for (const dateField of ['effective_date', 'announced_date']) {
-      if (law[dateField]) {
-        const d = new Date(law[dateField])
-        if (!isNaN(d.getTime())) {
-          const y = d.getFullYear()
-          return y >= 2400 ? y : y + 543
-        }
+  const handleSeed = async () => {
+    setSeeding(true)
+    try {
+      const res = await fetch('/api/seed-laws', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        toast.success(data.message)
+        await fetchData()
+      } else {
+        toast.error(data.error)
       }
+    } catch {
+      toast.error('เกิดข้อผิดพลาดในการดึงกฎหมาย')
+    } finally {
+      setSeeding(false)
     }
-    const match = law.title?.match(/พ\.ศ\.\s*(\d{4})/)
-    if (match) return parseInt(match[1])
-    return null
   }
 
   const activeLaws = useMemo(() => laws.filter(l => !l.is_cancelled), [laws])
@@ -86,64 +195,43 @@ export default function LegalRegistry() {
       }
       if (statusFilter !== 'all') {
         const s = normalizeComplianceStatus(law.compliance_status)
-        if (statusFilter === 'compliant' && s !== 'compliant') return false
-        if (statusFilter === 'non_compliant' && s !== 'non_compliant') return false
-        if (statusFilter === 'pending' && s !== 'pending') return false
+        if (s !== statusFilter) return false
       }
-      if (categoryFilter !== 'all' && law.category_id !== categoryFilter) return false
-      const yearBE = extractYearBE(law)
-      if (yearFrom && yearBE && yearBE < parseInt(yearFrom)) return false
-      if (yearTo && yearBE && yearBE > parseInt(yearTo)) return false
       return true
     })
-  }, [activeLaws, searchTerm, statusFilter, categoryFilter, yearFrom, yearTo])
+  }, [activeLaws, searchTerm, statusFilter])
 
-  const displayCategories = useMemo(() => [
-    ...categories,
-    ...(filteredLaws.some(l => !l.category_id)
-      ? [{ id: 'uncategorized', name: 'ไม่ระบุหมวดหมู่', color: '#94a3b8' }]
-      : []),
-  ], [categories, filteredLaws])
+  // Group by legal hierarchy
+  const grouped = useMemo(() => {
+    const map = {}
+    for (const law of filteredLaws) {
+      const type = getLawTypeDisplay(law)
+      if (!map[type]) map[type] = []
+      map[type].push(law)
+    }
+    // Sort by hierarchy order
+    return HIERARCHY_ORDER
+      .filter(t => map[t])
+      .map(t => ({ type: t, laws: map[t], meta: HIERARCHY_META[t] || DEFAULT_META }))
+      .concat(
+        Object.keys(map)
+          .filter(t => !HIERARCHY_ORDER.includes(t))
+          .map(t => ({ type: t, laws: map[t], meta: DEFAULT_META }))
+      )
+  }, [filteredLaws])
 
-  const getLawsByCategory = (catId) =>
-    catId === 'uncategorized'
-      ? filteredLaws.filter(l => !l.category_id)
-      : filteredLaws.filter(l => l.category_id === catId)
-
-  const complianceStats = (laws) => {
-    const total = laws.length
-    if (!total) return { compliant: 0, nonCompliant: 0, pending: 0, total: 0, pct: 0 }
-    const compliant = laws.filter(l => isCompliantStatus(l.compliance_status)).length
-    const nonCompliant = laws.filter(l => isNonCompliantStatus(l.compliance_status)).length
-    return { compliant, nonCompliant, pending: total - compliant - nonCompliant, total, pct: Math.round((compliant / total) * 100) }
-  }
-
-  const globalStats = complianceStats(filteredLaws)
-
-  const activeFiltersCount = [
-    searchTerm, statusFilter !== 'all', categoryFilter !== 'all', yearFrom, yearTo
-  ].filter(Boolean).length
-
-  const clearFilters = () => {
-    setSearchTerm('')
-    setStatusFilter('all')
-    setCategoryFilter('all')
-    setYearFrom('')
-    setYearTo('')
-  }
+  const totalLaws = activeLaws.length
+  const activeFilters = [searchTerm, statusFilter !== 'all'].filter(Boolean).length
 
   const exportColumns = [
     { label: 'รหัสกฎหมาย', value: l => l.law_code },
     { label: 'ชื่อกฎหมาย', value: l => l.title },
+    { label: 'ประเภท', value: l => getLawTypeDisplay(l) },
     { label: 'หมวดหมู่', value: l => l.law_categories?.name },
     { label: 'สถานะ', value: l => l.compliance_status },
-    { label: 'ความสำคัญ', value: l => l.priority },
-    { label: 'ผู้รับผิดชอบ', value: l => l.responsible_person },
     { label: 'วันที่บังคับใช้', value: l => l.effective_date },
-    { label: 'ความถี่ตรวจติดตาม', value: l => l.review_frequency },
+    { label: 'ผู้รับผิดชอบ', value: l => l.responsible_person },
   ]
-
-  const yearOptions = buildYearOptions()
 
   if (loading) {
     return (
@@ -151,7 +239,7 @@ export default function LegalRegistry() {
         <div className="flex items-center justify-center h-80">
           <div className="text-center">
             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-slate-500 text-sm">กำลังโหลดข้อมูล...</p>
+            <p className="text-slate-500 text-sm">กำลังโหลดทะเบียนกฎหมาย...</p>
           </div>
         </div>
       </Layout>
@@ -160,46 +248,104 @@ export default function LegalRegistry() {
 
   return (
     <Layout>
-      {/* Page Header */}
-      <div className="flex items-start justify-between mb-6 gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="p-2.5 bg-blue-600 rounded-xl shadow">
-              <BookOpen className="w-5 h-5 text-white" />
+      {/* ── Hero Header ────────────────────────────────────────────────────── */}
+      <div className="relative rounded-3xl overflow-hidden mb-6 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-8 shadow-2xl">
+        {/* Decorative circles */}
+        <div className="absolute -top-16 -right-16 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-56 h-56 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-6">
+          <div className="flex-1">
+            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/10 rounded-full px-3 py-1 text-xs text-indigo-200 font-semibold mb-3">
+              <Sparkles className="w-3.5 h-3.5" /> ระบบทะเบียนกฎหมาย EHS
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">ทะเบียนกฎหมาย</h1>
+            <h1 className="text-3xl font-bold text-white leading-tight mb-2">
+              ทะเบียนกฎหมายและกฎระเบียบ
+            </h1>
+            <p className="text-slate-300 text-sm max-w-xl">
+              จัดระเบียบกฎหมาย EHS ตามลำดับชั้นทางกฎหมาย — พ.ร.บ. → พ.ร.ฎ. → กฎกระทรวง → ประกาศกระทรวง → ประกาศกรม
+            </p>
           </div>
-          <p className="text-slate-500 text-sm ml-14">ติดตามและจัดการความสอดคล้องด้าน EHS ครบวงจร</p>
+
+          {/* Quick stats */}
+          <div className="grid grid-cols-3 gap-3 lg:w-72 flex-shrink-0">
+            <div className="bg-white/10 border border-white/10 rounded-2xl p-3 text-center">
+              <p className="text-2xl font-bold text-white">{totalLaws}</p>
+              <p className="text-xs text-slate-400 mt-0.5">กฎหมายทั้งหมด</p>
+            </div>
+            <div className="bg-white/10 border border-white/10 rounded-2xl p-3 text-center">
+              <p className="text-2xl font-bold text-white">{grouped.length}</p>
+              <p className="text-xs text-slate-400 mt-0.5">ลำดับชั้น</p>
+            </div>
+            <div className="bg-white/10 border border-white/10 rounded-2xl p-3 text-center">
+              <p className="text-2xl font-bold text-white">{filteredLaws.length}</p>
+              <p className="text-xs text-slate-400 mt-0.5">แสดงอยู่</p>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+
+        {/* Action bar */}
+        <div className="relative z-10 flex flex-wrap items-center gap-2 mt-6 pt-5 border-t border-white/10">
           <button
-            onClick={() => exportToCsv(filteredLaws, exportColumns, 'legal-registry.csv')}
-            className="btn-secondary text-xs px-3 py-2"
+            onClick={handleSeed}
+            disabled={seeding}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow"
           >
-            <Download className="w-3.5 h-3.5" /> CSV
+            <Database className={`w-4 h-4 ${seeding ? 'animate-pulse' : ''}`} />
+            {seeding ? 'กำลังดึงกฎหมาย...' : 'ดึงกฎหมายทั้งหมด'}
           </button>
-          <button
-            onClick={() => exportToExcel(filteredLaws, exportColumns, 'legal-registry.xls')}
-            className="btn-success text-xs px-3 py-2"
-          >
-            <Download className="w-3.5 h-3.5" /> Excel
-          </button>
-          <Link href="/legal/add" className="btn-primary text-xs px-4 py-2">
+          <Link href="/legal/add" className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
             <Plus className="w-4 h-4" /> เพิ่มกฎหมาย
           </Link>
+          <Link href="/new-laws" className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+            <Sparkles className="w-4 h-4" /> ราชกิจจาฯ ใหม่
+          </Link>
+          <Link href="/legal/repealed" className="flex items-center gap-2 text-slate-400 hover:text-white border border-white/10 hover:border-white/20 px-4 py-2 rounded-xl text-sm font-medium transition-all">
+            <Trash2 className="w-4 h-4" /> กฎหมายที่ยกเลิก
+          </Link>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => exportToCsv(filteredLaws, exportColumns, 'legal-registry.csv')} className="flex items-center gap-1.5 text-slate-400 hover:text-white border border-white/10 hover:border-white/20 px-3 py-2 rounded-xl text-xs font-medium transition-all">
+              <Download className="w-3.5 h-3.5" /> CSV
+            </button>
+            <button onClick={() => exportToExcel(filteredLaws, exportColumns, 'legal-registry.xls')} className="flex items-center gap-1.5 text-slate-400 hover:text-white border border-white/10 hover:border-white/20 px-3 py-2 rounded-xl text-xs font-medium transition-all">
+              <Download className="w-3.5 h-3.5" /> Excel
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={<Layers className="w-5 h-5" />} label="กฎหมายทั้งหมด" value={globalStats.total} color="blue" />
-        <StatCard icon={<CheckCircle2 className="w-5 h-5" />} label="สอดคล้องแล้ว" value={globalStats.compliant} color="emerald" />
-        <StatCard icon={<XCircle className="w-5 h-5" />} label="ไม่สอดคล้อง" value={globalStats.nonCompliant} color="red" />
-        <StatCard icon={<TrendingUp className="w-5 h-5" />} label="อัตราสอดคล้อง" value={`${globalStats.pct}%`} color="violet" />
+      {/* ── Hierarchy Overview Chips ───────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-2 mb-5">
+        {HIERARCHY_ORDER.map(type => {
+          const meta = HIERARCHY_META[type] || DEFAULT_META
+          const count = filteredLaws.filter(l => getLawTypeDisplay(l) === type).length
+          if (count === 0) return null
+          const Icon = meta.icon
+          return (
+            <button
+              key={type}
+              onClick={() => {
+                setExpandedType(prev => prev === type ? null : type)
+                setTimeout(() => document.getElementById(`hierarchy-${type}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+              }}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                expandedType === type
+                  ? `${meta.bg} text-white border-transparent shadow-lg`
+                  : `${meta.light} ${meta.text} ${meta.border} hover:shadow`
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span>{meta.abbr}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${expandedType === type ? 'bg-white/20 text-white' : 'bg-white text-slate-700'}`}>
+                {count}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
-      {/* Search + Filter Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-4">
+      {/* ── Search + Filter ────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-5">
         <div className="flex items-center gap-3 p-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -217,280 +363,153 @@ export default function LegalRegistry() {
           >
             <Filter className="w-4 h-4" />
             กรอง
-            {activeFiltersCount > 0 && (
+            {activeFilters > 0 && (
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${showFilters ? 'bg-white text-blue-600' : 'bg-blue-600 text-white'}`}>
-                {activeFiltersCount}
+                {activeFilters}
               </span>
             )}
           </button>
-          {activeFiltersCount > 0 && (
-            <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-500 px-2 py-2 rounded-xl hover:bg-red-50 transition-all">
-              <X className="w-3.5 h-3.5" /> ล้างตัวกรอง
+          {activeFilters > 0 && (
+            <button onClick={() => { setSearchTerm(''); setStatusFilter('all') }} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-500 px-2 py-2 rounded-xl hover:bg-red-50 transition-all">
+              <X className="w-3.5 h-3.5" /> ล้าง
             </button>
           )}
         </div>
-
-        {/* Expanded Filters */}
         {showFilters && (
-          <div className="border-t border-slate-100 px-4 py-3 grid grid-cols-1 sm:grid-cols-4 gap-3">
-            {/* Status */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1.5">สถานะ</label>
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-                className="select-field py-2 text-sm"
-              >
-                <option value="all">ทั้งหมด</option>
-                <option value="compliant">สอดคล้อง</option>
-                <option value="non_compliant">ไม่สอดคล้อง</option>
-                <option value="pending">รอตรวจสอบ</option>
-              </select>
-            </div>
-
-            {/* Category */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1.5">หมวดหมู่</label>
-              <select
-                value={categoryFilter}
-                onChange={e => setCategoryFilter(e.target.value)}
-                className="select-field py-2 text-sm"
-              >
-                <option value="all">ทุกหมวดหมู่</option>
-                {categories.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Year From */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
-                <Calendar className="w-3 h-3" /> ปี พ.ศ. ตั้งแต่
-              </label>
-              <select
-                value={yearFrom}
-                onChange={e => setYearFrom(e.target.value)}
-                className="select-field py-2 text-sm"
-              >
-                <option value="">ทุกปี</option>
-                {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
-            </div>
-
-            {/* Year To */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
-                <Calendar className="w-3 h-3" /> ถึงปี พ.ศ.
-              </label>
-              <select
-                value={yearTo}
-                onChange={e => setYearTo(e.target.value)}
-                className="select-field py-2 text-sm"
-              >
-                <option value="">ทุกปี</option>
-                {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
+          <div className="border-t border-slate-100 px-4 py-3">
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5">สถานะการปฏิบัติตาม</label>
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { value: 'all', label: 'ทั้งหมด' },
+                { value: 'compliant', label: 'สอดคล้อง' },
+                { value: 'non_compliant', label: 'ไม่สอดคล้อง' },
+                { value: 'pending', label: 'รอตรวจสอบ' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setStatusFilter(opt.value)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${statusFilter === opt.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
         )}
       </div>
 
-      {/* Quick Links */}
-      <div className="flex gap-2 mb-4">
-        <Link href="/legal/repealed" className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-100 transition-all font-medium">
-          <Trash2 className="w-3.5 h-3.5" /> กฎหมายที่ยกเลิก
-        </Link>
-        <Link href="/legal/management-review" className="flex items-center gap-1.5 text-xs text-purple-600 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-xl hover:bg-purple-100 transition-all font-medium">
-          <FileText className="w-3.5 h-3.5" /> Management Review
-        </Link>
-        <Link href="/new-laws" className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl hover:bg-amber-100 transition-all font-medium">
-          <RefreshCw className="w-3.5 h-3.5" /> ตรวจสอบจากราชกิจจาฯ
-        </Link>
-      </div>
+      {/* ── Hierarchy Groups ───────────────────────────────────────────────── */}
+      {grouped.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center">
+          <AlertCircle className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+          <p className="text-slate-500 text-sm">ไม่พบกฎหมาย</p>
+          <button onClick={handleSeed} disabled={seeding} className="mt-3 text-blue-600 text-xs hover:underline">
+            {seeding ? 'กำลังดึง...' : 'ดึงกฎหมายจากราชกิจจาฯ'}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {grouped.map(({ type, laws: typeLaws, meta }) => {
+            const Icon = meta.icon
+            const isOpen = expandedType === type
 
-      {/* Category Tree */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        {displayCategories.length === 0 ? (
-          <div className="py-16 text-center text-slate-400">
-            <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">ไม่พบกฎหมายที่ตรงกับตัวกรอง</p>
-            {activeFiltersCount > 0 && (
-              <button onClick={clearFilters} className="mt-2 text-blue-600 text-xs hover:underline">ล้างตัวกรอง</button>
-            )}
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {displayCategories.map((cat) => {
-              const catLaws = getLawsByCategory(cat.id)
-              if (catLaws.length === 0) return null
-              const stats = complianceStats(catLaws)
-              const isExpanded = expandedCategory === cat.id
+            return (
+              <div
+                key={type}
+                id={`hierarchy-${type}`}
+                className={`rounded-2xl border overflow-hidden transition-all duration-200 ${meta.border} bg-white shadow-sm`}
+              >
+                {/* Group Header */}
+                <button
+                  onClick={() => setExpandedType(isOpen ? null : type)}
+                  className={`w-full flex items-center gap-4 px-6 py-4 transition-colors ${isOpen ? meta.light : 'hover:bg-slate-50/80'}`}
+                >
+                  {/* Level badge */}
+                  <div className={`w-10 h-10 rounded-xl ${meta.bg} flex items-center justify-center flex-shrink-0 shadow`}>
+                    <Icon className="w-5 h-5 text-white" />
+                  </div>
 
-              return (
-                <div key={cat.id}>
-                  {/* Category Row */}
-                  <button
-                    onClick={() => setExpandedCategory(isExpanded ? null : cat.id)}
-                    className="w-full px-5 py-4 hover:bg-slate-50 transition-colors flex items-center gap-4"
-                  >
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || '#3B82F6' }} />
-                    <div className="flex-1 text-left">
-                      <h3 className="font-semibold text-slate-800 text-sm">{cat.name}</h3>
-                      <div className="flex items-center gap-3 mt-0.5">
-                        <span className="text-xs text-slate-500">{stats.total} ฉบับ</span>
-                        <span className="text-xs text-emerald-600 font-medium">✓ {stats.compliant}</span>
-                        {stats.nonCompliant > 0 && <span className="text-xs text-red-500 font-medium">✗ {stats.nonCompliant}</span>}
-                        {stats.pending > 0 && <span className="text-xs text-amber-500 font-medium">◷ {stats.pending}</span>}
-                      </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-slate-900">{type}</h3>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${meta.badge}`}>
+                        {meta.abbr}
+                      </span>
+                      <span className="text-xs text-slate-400">ชั้นที่ {meta.level}</span>
                     </div>
-                    {/* Mini progress bar */}
-                    <div className="flex items-center gap-2 w-36">
-                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${stats.pct}%` }} />
-                      </div>
-                      <span className="text-xs font-bold text-slate-600 w-9 text-right">{stats.pct}%</span>
-                    </div>
-                    {isExpanded
-                      ? <ChevronDown className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                      : <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />}
-                  </button>
+                    <p className="text-xs text-slate-400 mt-0.5 truncate">{meta.description}</p>
+                  </div>
 
-                  {/* Year Groups */}
-                  {isExpanded && (
-                    <div className="bg-slate-50/70 border-t border-slate-100">
-                      {(() => {
-                        const byYear = catLaws.reduce((acc, law) => {
-                          const y = extractYearBE(law)
-                          const key = y ? y.toString() : 'ไม่ระบุปี'
-                          if (!acc[key]) acc[key] = []
-                          acc[key].push(law)
-                          return acc
-                        }, {})
-                        const sortedYears = Object.keys(byYear).sort((a, b) => {
-                          if (a === 'ไม่ระบุปี') return 1
-                          if (b === 'ไม่ระบุปี') return -1
-                          return parseInt(b) - parseInt(a)
-                        })
-                        return sortedYears.map(year => {
-                          const yearLaws = byYear[year]
-                          const ys = complianceStats(yearLaws)
-                          const yKey = `${cat.id}-${year}`
-                          const isYearExpanded = expandedYear === yKey
-                          return (
-                            <div key={year} className="border-b border-slate-100 last:border-0">
-                              <button
-                                onClick={() => setExpandedYear(isYearExpanded ? null : yKey)}
-                                className="w-full px-8 py-3 hover:bg-white/70 transition-colors flex items-center gap-3"
-                              >
-                                {isYearExpanded
-                                  ? <ChevronDown className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                                  : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
-                                <span className="font-semibold text-slate-700 text-sm flex-1 text-left">ปี {year}</span>
-                                <span className="text-xs text-slate-500">{ys.total} ฉบับ</span>
-                                <div className="flex items-center gap-1.5 w-28">
-                                  <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                    <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${ys.pct}%` }} />
-                                  </div>
-                                  <span className="text-xs font-bold text-slate-600 w-9 text-right">{ys.pct}%</span>
-                                </div>
-                              </button>
-                              {isYearExpanded && (
-                                <div className="bg-white border-t border-slate-100 divide-y divide-slate-50">
-                                  {yearLaws.map(law => <LawRow key={law.id} law={law} />)}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })
-                      })()}
+                  <div className="flex items-center gap-4 flex-shrink-0">
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-slate-800">{typeLaws.length}</p>
+                      <p className="text-xs text-slate-400">ฉบับ</p>
                     </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                    {isOpen
+                      ? <ChevronDown className={`w-5 h-5 ${meta.text}`} />
+                      : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                  </div>
+                </button>
+
+                {/* Laws list */}
+                {isOpen && (
+                  <div className={`border-t ${meta.border} divide-y divide-slate-100`}>
+                    {typeLaws.map(law => (
+                      <LawCard key={law.id} law={law} meta={meta} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </Layout>
   )
 }
 
-function StatCard({ icon, label, value, color }) {
-  const colors = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-100',
-    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-    red: 'bg-red-50 text-red-600 border-red-100',
-    violet: 'bg-violet-50 text-violet-600 border-violet-100',
-  }
-  const textColors = {
-    blue: 'text-blue-900',
-    emerald: 'text-emerald-900',
-    red: 'text-red-900',
-    violet: 'text-violet-900',
-  }
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-      <div className={`inline-flex items-center justify-center w-9 h-9 rounded-xl mb-3 border ${colors[color]}`}>
-        {icon}
-      </div>
-      <p className="text-xs text-slate-500 font-medium">{label}</p>
-      <p className={`text-2xl font-bold mt-0.5 ${textColors[color]}`}>{value}</p>
-    </div>
-  )
-}
-
-function LawRow({ law }) {
+function LawCard({ law, meta }) {
   const status = normalizeComplianceStatus(law.compliance_status)
   const isCompliant = status === 'compliant'
   const isNonCompliant = status === 'non_compliant'
 
   return (
     <Link href={`/legal/${law.id}`}>
-      <div className="px-8 py-3.5 hover:bg-blue-50/50 transition-colors cursor-pointer group">
+      <div className="group px-6 py-4 hover:bg-slate-50/70 transition-colors cursor-pointer">
         <div className="flex items-start gap-4">
-          {/* Status indicator */}
-          <div className="mt-1 flex-shrink-0">
-            {isCompliant
-              ? <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              : isNonCompliant
-              ? <XCircle className="w-4 h-4 text-red-500" />
-              : <Clock className="w-4 h-4 text-amber-400" />}
-          </div>
+          {/* Status dot */}
+          <div className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${isCompliant ? 'bg-emerald-500' : isNonCompliant ? 'bg-red-500' : 'bg-amber-400'}`} />
 
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700 transition-colors truncate">
+            <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700 transition-colors leading-snug">
               {law.title}
             </p>
-            <div className="flex items-center gap-3 mt-1 flex-wrap">
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
               {law.law_code && (
-                <span className="text-xs text-slate-400 font-mono">{law.law_code}</span>
+                <span className="text-[11px] font-mono text-slate-400">{law.law_code}</span>
               )}
-              <span className={`badge text-[10px] ${isCompliant ? 'badge-low' : isNonCompliant ? 'badge-critical' : 'badge-medium'}`}>
-                {isCompliant ? 'สอดคล้อง' : isNonCompliant ? 'ไม่สอดคล้อง' : 'รอตรวจสอบ'}
-              </span>
-              {law.priority && (
-                <span className={`badge text-[10px] ${law.priority === 'critical' ? 'badge-critical' : law.priority === 'high' ? 'badge-high' : 'badge-low'}`}>
-                  {law.priority === 'critical' ? 'วิกฤต' : law.priority === 'high' ? 'สูง' : 'ปกติ'}
+              {law.law_categories?.name && (
+                <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                  <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: law.law_categories.color || '#94a3b8' }} />
+                  {law.law_categories.name}
                 </span>
               )}
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${isCompliant ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : isNonCompliant ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                {isCompliant ? '✓ สอดคล้อง' : isNonCompliant ? '✗ ไม่สอดคล้อง' : '◷ รอตรวจสอบ'}
+              </span>
               {law.review_frequency && (
-                <span className="text-xs text-slate-400 flex items-center gap-1">
+                <span className="text-[11px] text-slate-400 flex items-center gap-1">
                   <Clock className="w-3 h-3" /> {law.review_frequency}
                 </span>
               )}
             </div>
+            {law.description && (
+              <p className="text-xs text-slate-500 mt-1.5 line-clamp-1">{law.description}</p>
+            )}
           </div>
 
-          <div className="flex-shrink-0 text-right">
-            {law.responsible_person && (
-              <p className="text-xs text-slate-500">{law.responsible_person}</p>
-            )}
-            {law.effective_date && (
-              <p className="text-xs text-slate-400 mt-0.5">
-                {new Date(law.effective_date).toLocaleDateString('th-TH')}
-              </p>
-            )}
+          <div className="flex-shrink-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <ArrowUpRight className="w-4 h-4 text-blue-500" />
           </div>
         </div>
       </div>

@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import {
   BookOpen, Brain, ClipboardList, Shield, Settings,
-  Sparkles, LogOut, Trash2, FileText, MessageSquare,
+  Sparkles, LogOut, Trash2, MessageSquare,
   ChevronRight, ExternalLink, Book, Bot,
 } from 'lucide-react'
 import clsx from 'clsx'
@@ -15,7 +15,6 @@ const menu = [
       { href: '/legal', label: 'ทะเบียนกฎหมาย', icon: BookOpen },
       { href: '/new-laws', label: 'กฎหมายใหม่ (ราชกิจจาฯ)', icon: Sparkles },
       { href: '/legal/repealed', label: 'กฎหมายที่ยกเลิก', icon: Trash2 },
-      { href: '/legal/management-review', label: 'Management Review', icon: FileText },
     ]
   },
   {
